@@ -107,6 +107,7 @@ class sharedRandomizerClass{
             bool extraPokemon = false;
             bool forcePerfectIV = false;
             bool makeAISmart = false;
+            bool keepTypeTheme = false; // Typ-Trainer (Arenen, Top 4, Team Star...) behalten ihren Typ
 
             allowedPokemonLimiter allowedPokemons;
         };

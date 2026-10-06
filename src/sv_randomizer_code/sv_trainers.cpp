@@ -66,6 +66,56 @@ void svTrainers::noSoftlockeTerapagos(){
     }
 }
 
+void svTrainers::buildTrainerThemeMap(){
+    trainerThemeType.clear();
+
+    // Typ-IDs: 0 Normal, 1 Kampf, 2 Flug, 3 Gift, 4 Boden, 5 Gestein, 6 Kaefer, 7 Geist, 8 Stahl,
+    //          9 Feuer, 10 Wasser, 11 Pflanze, 12 Elektro, 13 Psycho, 14 Eis, 15 Drache, 16 Unlicht, 17 Fee
+    QList<QPair<QList<int>, int>> themes = {
+        // Arenen (Arenatrainer + Arenaleiter inkl. Rematches)
+        {electricGym, 12}, {psychicGym, 13}, {ghostGym, 7}, {iceGym, 14},
+        {grassGym, 11}, {waterGym, 10}, {bugGym, 6}, {normalGym, 0},
+        // Top 4
+        {e4Dragon, 15}, {e4Steel, 8}, {e4Flying, 2}, {e4Ground, 4},
+        // Team Star
+        {starDark, 16}, {starPoison, 3}, {starFairy, 17}, {starFire, 9}, {starFight, 1},
+        // Blueberry Top 4 (DLC2)
+        {bb4Dragon, 15}, {bb4DragonTrainers, 15}, {bb4Farity, 17}, {bb4FairyTrainers, 17},
+        {bb4Steel, 8}, {bb4Fire, 9}, {bb4FireTrainers, 9}
+    };
+
+    for(const auto& theme : themes){
+        for(int index : theme.first){
+            trainerThemeType[index] = theme.second;
+        }
+    }
+}
+
+QMap<int, QList<QPair<int,int>>> svTrainers::buildThemedCandidates(QMap<int, QList<int>>& allowedPokemon){
+    QMap<int, QList<QPair<int,int>>> candidates;
+
+    for(auto it = allowedPokemon.constBegin(); it != allowedPokemon.constEnd(); ++it){
+        int pokemon = it.key();
+        int formCount = static_cast<int>(pokemonMapping["pokemons"][pokemon]["forms"].size());
+
+        for(int form : it.value()){
+            if(form < 0 || form >= formCount){
+                continue;
+            }
+            const json& formData = pokemonMapping["pokemons"][pokemon]["forms"][form];
+            int type1 = formData["type1"];
+            int type2 = formData["type2"];
+
+            candidates[type1].append(qMakePair(pokemon, form));
+            if(type2 != type1){
+                candidates[type2].append(qMakePair(pokemon, form));
+            }
+        }
+    }
+
+    return candidates;
+}
+
 int svTrainers::getMaxNumberOfChanges(json trainerEntry, bool NULLS){
     int totalChanges = 0;
 
@@ -93,6 +143,13 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
         bool sizeCheck = getAllowedPokemon(trainer.allowedPokemons, allowedPokemon, "Trainers");
         qDebug()<<"Total Number of randomized Trainers:"<< trainer.randomizedIndex.size();
 
+        // Typ-Themen: Kandidaten einmalig berechnen (wird in den Threads nur gelesen)
+        QMap<int, QList<QPair<int,int>>> themedCandidatesData;
+        if(trainer.keepTypeTheme == true){
+            themedCandidatesData = buildThemedCandidates(allowedPokemon);
+        }
+        const QMap<int, QList<QPair<int,int>>>& themedCandidates = themedCandidatesData;
+
         QFuture<void> future = QtConcurrent::map(entries, [&](json& entry){
             int index = &entry - &entries[0];
 
@@ -103,6 +160,16 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                 QRandomGenerator randGen(seeds[index]);
                 qDebug() << "Thread" << QThread::currentThreadId() << "working on trainer:"
                          << std::string(entry["trid"])<<" Index:"<<index;
+
+                // Typ-Thema dieses Trainers (-1 = kein Thema)
+                int themeType = -1;
+                if(trainer.keepTypeTheme == true && trainerThemeType.contains(index)){
+                    themeType = trainerThemeType.value(index);
+                    if(themedCandidates.value(themeType).isEmpty()){
+                        qDebug()<<"Keine erlaubten Pokemon fuer Typ"<<themeType<<"- Trainer"<<index<<"wird normal randomisiert";
+                        themeType = -1;
+                    }
+                }
 
                 // Enable tera if selected
                 if(trainer.allowTera == true){
@@ -223,18 +290,29 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                         entry[key]["talentValue"]["agi"] = 31;
                     }
 
-                    // Obtained Randomized Pokemon (Manual since using randGen
-                    int pokemon = randGen.bounded(1, maxAllowedId);
-                    while(!allowedPokemon.contains(pokemon)){
-                        pokemon = randGen.bounded(1, maxAllowedId);
-                    }
+                    int pokemon = 0;
+                    int form = 0;
 
-                    if(static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()) == 0){
-                        qFatal()<<"Pokemon: "<<pokemon;
-                    }
-                    int form = randGen.bounded(0, static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()));
-                    while(!allowedPokemon[pokemon].contains(form)){
+                    if(themeType != -1){
+                        // Typ-Thema: nur Pokemon/Formen mit passendem Typ
+                        const QList<QPair<int,int>> pool = themedCandidates.value(themeType);
+                        QPair<int,int> pick = pool[randGen.bounded(static_cast<int>(pool.size()))];
+                        pokemon = pick.first;
+                        form = pick.second;
+                    }else{
+                        // Obtained Randomized Pokemon (Manual since using randGen
+                        pokemon = randGen.bounded(1, maxAllowedId);
+                        while(!allowedPokemon.contains(pokemon)){
+                            pokemon = randGen.bounded(1, maxAllowedId);
+                        }
+
+                        if(static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()) == 0){
+                            qFatal()<<"Pokemon: "<<pokemon;
+                        }
                         form = randGen.bounded(0, static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()));
+                        while(!allowedPokemon[pokemon].contains(form)){
+                            form = randGen.bounded(0, static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()));
+                        }
                     }
 
                     std::string genderStd = "MALE";
@@ -266,7 +344,16 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                     entry[key]["formId"] = form;
                     entry[key]["item"] = getPokemonItemId(pokemon, form);
                     entry[key]["sex"] = genderStd;
+                    std::string originalGem = entry[key].value("gemType", std::string("DEFAULT"));
                     randomizeTeraType(entry[key], trainer.randomizeTeras, localMapping["pokemons"][pokemon]["devid"], form);
+
+                    // Typ-Thema: Tera-Typ passend zum Thema setzen (z. B. Arenaleiter-Ass),
+                    // ausser Tera-Typen sollen zufaellig sein oder das Pokemon hat einen festen Tera-Typ (Ogerpon, Terapagos)
+                    if(themeType != -1 && trainer.randomizeTeras == false &&
+                        !set_tera_type_pokemon.contains(int(localMapping["pokemons"][pokemon]["natdex"])) &&
+                        (originalGem != "DEFAULT" || entry["changeGem"] == true)){
+                        entry[key]["gemType"] = teraTypes[themeType].toStdString();
+                    }
 
                     // Set Shinyness
                     if(trainer.allowShinies == true){
@@ -297,6 +384,7 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
 
 void svTrainers::randomize(bool paldea, bool kitakami, bool blueberry, bool boss){
     trainersData = readJsonQFile("SV_FLATBUFFERS/SV_TRAINERS/trdata_array_clean.json");
+    buildTrainerThemeMap();
     for(unsigned long long i =0; i<trainersData["values"].size(); i++){
         int threadSeed = randNum.generate();
         while(seeds.contains(threadSeed)){

@@ -1914,6 +1914,13 @@ QVBoxLayout* SVRandomizerWindow::createTrainerSettings(QString region, QString t
         trainer.makeAISmart = checked;
     });
 
+    QCheckBox* keep_type_theme = new QCheckBox("Keep Trainer Type Themes (Gyms, E4, Team Star, BB4)", paldeaRaidGroupSettings);
+    row4->addWidget(keep_type_theme);
+    // Connect for Setting the values
+    connect(keep_type_theme, &QCheckBox::toggled, this, [&trainer](bool checked) mutable{
+        trainer.keepTypeTheme = checked;
+    });
+
     paldeaRaidSettingsLayout->addLayout(row4);
 
     setupAllowedPokemon(paldeaRaidSettingsLayout, trainer.allowedPokemons);
