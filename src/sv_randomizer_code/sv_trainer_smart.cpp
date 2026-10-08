@@ -349,3 +349,42 @@ QStringList TrainerSmartData::buildMoveset(int natdex, int form, int level, bool
     }
     return result;
 }
+
+QPair<int,int> TrainerSmartData::types(int natdex, int form) const {
+    qint64 k = key(natdex, form);
+    if (!pokeInfo.contains(k)) {
+        k = key(natdex, 0);
+    }
+    if (!pokeInfo.contains(k)) {
+        return qMakePair(0, 0);
+    }
+    const PokeInfo info = pokeInfo.value(k);
+    return qMakePair(info.type1, info.type2);
+}
+
+QList<int> TrainerSmartData::defaultMoveset(int natdex, int form, int level) const {
+    QList<int> result;
+    qint64 k = key(natdex, form);
+    if (!pokeInfo.contains(k)) {
+        k = key(natdex, 0);
+    }
+    if (!pokeInfo.contains(k)) {
+        return result;
+    }
+
+    QList<QPair<int,int>> learnset = pokeInfo.value(k).levelMoves;
+    std::stable_sort(learnset.begin(), learnset.end(), [](const QPair<int,int>& a, const QPair<int,int>& b){
+        return a.second < b.second;
+    });
+    for (const auto& lm : learnset) {
+        if (lm.second >= 250 || lm.second > level) {
+            continue;
+        }
+        result.removeAll(lm.first);
+        result.append(lm.first);
+    }
+    while (result.size() > 4) {
+        result.removeFirst();
+    }
+    return result;
+}

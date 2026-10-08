@@ -293,6 +293,9 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                     teamMaxLevel = std::max(teamMaxLevel, int(entry[levelKey]["level"]));
                 }
 
+                // Keine Duplikate: bereits im Team verwendete Arten
+                QSet<int> usedSpecies;
+
                 // Randomize the Pokemon
                 for(int i=1; i<=maxChanges; i++){
                     // Pokemon key
@@ -306,10 +309,13 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                     }
 
                     // Waehlt ein Pokemon aus einem Pool: erst gleichmaessig die Art, dann die Form
-                    auto pickFrom = [&](const QList<QPair<int,int>>& pool, bool applyLevelRules, QPair<int,int>& out) -> bool{
+                    auto pickFrom = [&](const QList<QPair<int,int>>& pool, bool applyLevelRules, bool noDuplicates, QPair<int,int>& out) -> bool{
                         QHash<int, QList<int>> bySpecies;
                         QList<int> speciesOrder;
                         for(const auto& candidate : pool){
+                            if(noDuplicates == true && usedSpecies.contains(candidate.first)){
+                                continue;
+                            }
                             if(applyLevelRules == true &&
                                 !smartData.isAllowedAtLevel(candidate.first, candidate.second, level,
                                                             trainer.fullyEvolvedLevel, trainer.levelAppropriateEvos)){
@@ -345,16 +351,21 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
 
                     bool picked = false;
                     QPair<int,int> pick;
+                    // Reihenfolge der Versuche, falls ein Pool zu klein ist:
+                    // 1. alle Regeln, 2. ohne Level-Regeln, 3. Duplikate erlauben (nur als letzter Ausweg)
+                    auto pickWithFallback = [&](const QList<QPair<int,int>>& pool, bool applyLevelRules) -> bool{
+                        if(pickFrom(pool, applyLevelRules, true, pick)) return true;
+                        if(applyLevelRules == true && pickFrom(pool, false, true, pick)) return true;
+                        if(pickFrom(pool, applyLevelRules, false, pick)) return true;
+                        return applyLevelRules == true && pickFrom(pool, false, false, pick);
+                    };
+
                     if(themeType != -1){
-                        // Typ-Thema: nur Pokemon/Formen mit passendem Typ.
-                        // Wenn die Level-Regeln nichts uebrig lassen, hat der Typ Vorrang.
+                        // Typ-Thema: nur Pokemon/Formen mit passendem Typ (der Typ hat immer Vorrang)
                         const QList<QPair<int,int>> pool = themedCandidates.value(themeType);
-                        picked = pickFrom(pool, levelRules, pick);
-                        if(picked == false && levelRules == true){
-                            picked = pickFrom(pool, false, pick);
-                        }
+                        picked = pickWithFallback(pool, levelRules);
                     }else if(levelRules == true){
-                        picked = pickFrom(allCandidates, true, pick);
+                        picked = pickWithFallback(allCandidates, true);
                     }
 
                     if(picked == true){
@@ -362,9 +373,12 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                         form = pick.second;
                     }else{
                         // Obtained Randomized Pokemon (Manual since using randGen
+                        // Keine Duplikate: neue Art suchen, nach vielen Fehlversuchen Duplikat erlauben
+                        int attempts = 0;
                         pokemon = randGen.bounded(1, maxAllowedId);
-                        while(!allowedPokemon.contains(pokemon)){
+                        while(!allowedPokemon.contains(pokemon) || (usedSpecies.contains(pokemon) && attempts < 5000)){
                             pokemon = randGen.bounded(1, maxAllowedId);
+                            attempts++;
                         }
 
                         if(static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()) == 0){
@@ -375,6 +389,8 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                             form = randGen.bounded(0, static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()));
                         }
                     }
+
+                    usedSpecies.insert(pokemon);
 
                     std::string genderStd = "MALE";
                     QString form_Check = QString::fromUtf8(localMapping["pokemons"][pokemon]["name"].get<std::string>().c_str());
@@ -525,6 +541,11 @@ void svTrainers::randomize(bool paldea, bool kitakami, bool blueberry, bool boss
         randomizeTrainers(blueberryRouteTrainers);
         qDebug()<<"Randomizing Raid Trainers - Blueberry";
         randomizeTrainers(blueberryRaidTrainers);
+    }
+
+    if(writeSpoiler == true){
+        qDebug()<<"Writing Spoiler-Log";
+        writeSpoilerLog();
     }
 
     qDebug()<<"Closing and finalizing file";

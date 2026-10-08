@@ -23,6 +23,10 @@ class svTrainers: public QObject, public SVShared{
         // Zeigt auf randomisierte Personal-Daten, falls diese vorher veraendert wurden
         json* personalOverride = nullptr;
 
+        // --- Spoiler-Log (HTML) ---
+        bool writeSpoiler = true;
+        void writeSpoilerLog();
+
         // --- Typ-Themen-Feature ---
         // Trainer-Index -> Typ-ID (0=Normal ... 17=Fee, Reihenfolge wie teraTypes)
         QMap<int, int> trainerThemeType;

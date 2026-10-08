@@ -43,6 +43,12 @@ public:
 
     bool isReady() const { return ready; }
 
+    // Typen einer Form (fuer das Spoiler-Log). first = Typ 1, second = Typ 2
+    QPair<int,int> types(int natdex, int form) const;
+
+    // Attacken, die das Spiel bei "DEFAULT" waehlt: die letzten 4 per Level gelernten
+    QList<int> defaultMoveset(int natdex, int form, int level) const;
+
 private:
     struct MoveInfo {
         int id = 0;
