@@ -2,6 +2,7 @@
 #define SV_TRAINERS_H
 
 #include "sv_shared_class.h"
+#include "sv_trainer_smart.h"
 
 class svTrainers: public QObject, public SVShared{
     Q_OBJECT
@@ -16,6 +17,11 @@ class svTrainers: public QObject, public SVShared{
         int getMaxNumberOfChanges(json trainerEntry, bool NULLS=false);
         void randomizeTrainers(trainerSettings trainer);
         void randomize(bool paldea, bool kitakami, bool blueberry, bool boss = false);
+
+        // --- Intelligente Trainer (Level-Regeln, Movesets) ---
+        TrainerSmartData smartData;
+        // Zeigt auf randomisierte Personal-Daten, falls diese vorher veraendert wurden
+        json* personalOverride = nullptr;
 
         // --- Typ-Themen-Feature ---
         // Trainer-Index -> Typ-ID (0=Normal ... 17=Fee, Reihenfolge wie teraTypes)

@@ -208,6 +208,10 @@ void SVRandomizerWindow::runRandomizer(){
             randomizer.svRandomizerPersonal.randomizeTMs == true){
 
             randomizer.svRandomizerPersonal.randomize();
+            // Trainer sollen die veraenderten Typen/Attacken/Entwicklungen kennen
+            randomizer.svRandomizerTrainers.personalOverride = &randomizer.svRandomizerPersonal.personalMaps;
+        }else{
+            randomizer.svRandomizerTrainers.personalOverride = nullptr;
         }
 
         if(randomizer.svRandomizerItems.randomizeItems == true){
@@ -1920,8 +1924,61 @@ QVBoxLayout* SVRandomizerWindow::createTrainerSettings(QString region, QString t
     connect(keep_type_theme, &QCheckBox::toggled, this, [&trainer](bool checked) mutable{
         trainer.keepTypeTheme = checked;
     });
+    keep_type_theme->setToolTip("Arenen, Top 4, Team Star und die Blueberry-Top-4 bekommen nur zufällige Pokémon ihres Typs.");
 
     paldeaRaidSettingsLayout->addLayout(row4);
+
+    // --- Intelligente Trainer ---
+    QHBoxLayout *row5 = new QHBoxLayout();
+
+    QCheckBox* fully_evolved = new QCheckBox("Nur vollentwickelte Pokémon ab Level", paldeaRaidGroupSettings);
+    QSpinBox* fully_evolved_level = new QSpinBox(paldeaRaidGroupSettings);
+    fully_evolved_level->setRange(1, 100);
+    fully_evolved_level->setValue(40);
+    fully_evolved_level->setEnabled(false);
+    QString fullyEvolvedTip = "Trainer-Pokémon ab diesem Level sind immer in ihrer Endstufe "
+                              "(oder haben gar keine Entwicklung).";
+    fully_evolved->setToolTip(fullyEvolvedTip);
+    fully_evolved_level->setToolTip(fullyEvolvedTip);
+    row5->addWidget(fully_evolved);
+    row5->addWidget(fully_evolved_level);
+    connect(fully_evolved, &QCheckBox::toggled, this, [&trainer, fully_evolved_level](bool checked) mutable{
+        fully_evolved_level->setEnabled(checked);
+        trainer.fullyEvolvedLevel = checked ? fully_evolved_level->value() : 0;
+    });
+    connect(fully_evolved_level, QOverload<int>::of(&QSpinBox::valueChanged), this, [&trainer, fully_evolved](int value) mutable{
+        if(fully_evolved->isChecked()){
+            trainer.fullyEvolvedLevel = value;
+        }
+    });
+
+    QCheckBox* level_evos = new QCheckBox("Level-passende Entwicklungen", paldeaRaidGroupSettings);
+    level_evos->setToolTip("Pokémon tauchen erst auf, wenn sie auf diesem Level entwickelt sein könnten "
+                           "(z. B. kein Garados vor Level 20). Bei Entwicklungen per Item oder Tausch wird ein "
+                           "sinnvolles Level geschätzt.");
+    row5->addWidget(level_evos);
+    connect(level_evos, &QCheckBox::toggled, this, [&trainer](bool checked) mutable{
+        trainer.levelAppropriateEvos = checked;
+    });
+
+    QCheckBox* smart_moves = new QCheckBox("Starke Movesets", paldeaRaidGroupSettings);
+    smart_moves->setToolTip("Statt der letzten vier gelernten Attacken bekommt jedes Pokémon die stärksten "
+                            "passenden Attacken (inkl. Attacken der Vorentwicklungen, Typ-Bonus, Typ-Abdeckung "
+                            "und einer nützlichen Statusattacke).");
+    QCheckBox* smart_tms = new QCheckBox("TM-Attacken erlauben", paldeaRaidGroupSettings);
+    smart_tms->setToolTip("Starke Movesets dürfen auch Attacken enthalten, die das Pokémon nur per TM lernt.");
+    smart_tms->setEnabled(false);
+    row5->addWidget(smart_moves);
+    row5->addWidget(smart_tms);
+    connect(smart_moves, &QCheckBox::toggled, this, [&trainer, smart_tms](bool checked) mutable{
+        trainer.smartMovesets = checked;
+        smart_tms->setEnabled(checked);
+    });
+    connect(smart_tms, &QCheckBox::toggled, this, [&trainer](bool checked) mutable{
+        trainer.smartMovesTMs = checked;
+    });
+
+    paldeaRaidSettingsLayout->addLayout(row5);
 
     setupAllowedPokemon(paldeaRaidSettingsLayout, trainer.allowedPokemons);
 

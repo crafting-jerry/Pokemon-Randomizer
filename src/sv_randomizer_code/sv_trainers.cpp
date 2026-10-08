@@ -150,6 +150,18 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
         }
         const QMap<int, QList<QPair<int,int>>>& themedCandidates = themedCandidatesData;
 
+        // Level-Regeln: alle erlaubten (Pokemon, Form)-Paare einmalig sammeln
+        bool levelRules = trainer.fullyEvolvedLevel > 0 || trainer.levelAppropriateEvos;
+        QList<QPair<int,int>> allCandidatesData;
+        if(levelRules == true){
+            for(auto it = allowedPokemon.constBegin(); it != allowedPokemon.constEnd(); ++it){
+                for(int form : it.value()){
+                    allCandidatesData.append(qMakePair(it.key(), form));
+                }
+            }
+        }
+        const QList<QPair<int,int>>& allCandidates = allCandidatesData;
+
         QFuture<void> future = QtConcurrent::map(entries, [&](json& entry){
             int index = &entry - &entries[0];
 
@@ -274,10 +286,48 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                     maxChanges = 1;
                 }
 
+                // Hoechstes Level im Originalteam (fuer neu hinzugefuegte Slots)
+                int teamMaxLevel = 1;
+                for(int k = 1; k <= 6; k++){
+                    std::string levelKey = "poke"+std::to_string(k);
+                    teamMaxLevel = std::max(teamMaxLevel, int(entry[levelKey]["level"]));
+                }
+
                 // Randomize the Pokemon
                 for(int i=1; i<=maxChanges; i++){
                     // Pokemon key
                     std::string key = "poke"+std::to_string(i);
+
+                    // Leere Slots (z. B. durch "6 Pokemon erzwingen") haben Level 0 -> Teamlevel uebernehmen
+                    int level = entry[key]["level"];
+                    if(level <= 0){
+                        level = teamMaxLevel;
+                        entry[key]["level"] = level;
+                    }
+
+                    // Waehlt ein Pokemon aus einem Pool: erst gleichmaessig die Art, dann die Form
+                    auto pickFrom = [&](const QList<QPair<int,int>>& pool, bool applyLevelRules, QPair<int,int>& out) -> bool{
+                        QHash<int, QList<int>> bySpecies;
+                        QList<int> speciesOrder;
+                        for(const auto& candidate : pool){
+                            if(applyLevelRules == true &&
+                                !smartData.isAllowedAtLevel(candidate.first, candidate.second, level,
+                                                            trainer.fullyEvolvedLevel, trainer.levelAppropriateEvos)){
+                                continue;
+                            }
+                            if(!bySpecies.contains(candidate.first)){
+                                speciesOrder.append(candidate.first);
+                            }
+                            bySpecies[candidate.first].append(candidate.second);
+                        }
+                        if(speciesOrder.isEmpty()){
+                            return false;
+                        }
+                        int species = speciesOrder[randGen.bounded(static_cast<int>(speciesOrder.size()))];
+                        const QList<int> forms = bySpecies.value(species);
+                        out = qMakePair(species, forms[randGen.bounded(static_cast<int>(forms.size()))]);
+                        return true;
+                    };
 
                     // set IVs
                     if(trainer.forcePerfectIV == true){
@@ -293,10 +343,21 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                     int pokemon = 0;
                     int form = 0;
 
+                    bool picked = false;
+                    QPair<int,int> pick;
                     if(themeType != -1){
-                        // Typ-Thema: nur Pokemon/Formen mit passendem Typ
+                        // Typ-Thema: nur Pokemon/Formen mit passendem Typ.
+                        // Wenn die Level-Regeln nichts uebrig lassen, hat der Typ Vorrang.
                         const QList<QPair<int,int>> pool = themedCandidates.value(themeType);
-                        QPair<int,int> pick = pool[randGen.bounded(static_cast<int>(pool.size()))];
+                        picked = pickFrom(pool, levelRules, pick);
+                        if(picked == false && levelRules == true){
+                            picked = pickFrom(pool, false, pick);
+                        }
+                    }else if(levelRules == true){
+                        picked = pickFrom(allCandidates, true, pick);
+                    }
+
+                    if(picked == true){
                         pokemon = pick.first;
                         form = pick.second;
                     }else{
@@ -366,10 +427,30 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                     }
 
                     // Set moves
-                    entry[key]["wazaType"] = "DEFAULT";
-                    for(int k = 1; k<=4; k++){
-                        std::string moveKey = "waza"+std::to_string(k);
-                        entry[key][moveKey]["wazaId"] = "WAZA_NULL";
+                    QStringList smartMoves;
+                    if(trainer.smartMovesets == true && smartData.isReady()){
+                        smartMoves = smartData.buildMoveset(pokemon, form, level, trainer.smartMovesTMs, randGen);
+                    }
+
+                    if(!smartMoves.isEmpty()){
+                        // Eigenes Moveset
+                        entry[key]["wazaType"] = "MANUAL";
+                        for(int k = 1; k<=4; k++){
+                            std::string moveKey = "waza"+std::to_string(k);
+                            if(k <= smartMoves.size()){
+                                entry[key][moveKey]["wazaId"] = smartMoves[k-1].toStdString();
+                            }else{
+                                entry[key][moveKey]["wazaId"] = "WAZA_NULL";
+                            }
+                            entry[key][moveKey]["pointUp"] = 0;
+                        }
+                    }else{
+                        // Spiel-Standard: die letzten 4 per Level gelernten Attacken
+                        entry[key]["wazaType"] = "DEFAULT";
+                        for(int k = 1; k<=4; k++){
+                            std::string moveKey = "waza"+std::to_string(k);
+                            entry[key][moveKey]["wazaId"] = "WAZA_NULL";
+                        }
                     }
                 }
 
@@ -385,6 +466,13 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
 void svTrainers::randomize(bool paldea, bool kitakami, bool blueberry, bool boss){
     trainersData = readJsonQFile("SV_FLATBUFFERS/SV_TRAINERS/trdata_array_clean.json");
     buildTrainerThemeMap();
+
+    // Daten fuer Level-Regeln und Movesets (randomisierte Personal-Daten haben Vorrang)
+    json wazaTable = readJsonQFile("SV_FLATBUFFERS/SV_PERSONAL/waza_array_clean.json");
+    json moveNames = readJsonQFile("SV_FLATBUFFERS/SV_PERSONAL/sorted_move_list.json");
+    smartData.build(pokemonMapping,
+                    personalOverride != nullptr ? *personalOverride : pokemonPersonalData,
+                    wazaTable, moveNames);
     for(unsigned long long i =0; i<trainersData["values"].size(); i++){
         int threadSeed = randNum.generate();
         while(seeds.contains(threadSeed)){

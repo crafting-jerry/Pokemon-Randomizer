@@ -108,6 +108,10 @@ class sharedRandomizerClass{
             bool forcePerfectIV = false;
             bool makeAISmart = false;
             bool keepTypeTheme = false; // Typ-Trainer (Arenen, Top 4, Team Star...) behalten ihren Typ
+            int fullyEvolvedLevel = 0;      // ab diesem Level nur vollentwickelte Pokemon (0 = aus)
+            bool levelAppropriateEvos = false; // keine Entwicklungen, die auf dem Level noch nicht moeglich waeren
+            bool smartMovesets = false;     // starke Movesets statt Spiel-Standard
+            bool smartMovesTMs = false;     // TM-Attacken fuer Movesets erlauben
 
             allowedPokemonLimiter allowedPokemons;
         };
