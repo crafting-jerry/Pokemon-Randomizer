@@ -10,6 +10,8 @@ class SVRandomizerWindow : public QWidget, SharedRandomizerWindow
 
 public:
     explicit SVRandomizerWindow(QWidget *parent = nullptr);
+    // Zugriff fuer die neue Oberflaeche (ModernRandomizerWindow)
+    SVRandomizerCode& code() { return randomizer; }
     ~SVRandomizerWindow();
     void createLayout();
     QMap<QString, int> pokeballIndex = {

@@ -165,8 +165,8 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
         QFuture<void> future = QtConcurrent::map(entries, [&](json& entry){
             int index = &entry - &entries[0];
 
-            // Only randomize if its within the allowed indexes
-            if(trainer.randomizedIndex.contains(index)){
+            // Only randomize if its within the allowed indexes (and not marked as "Nicht aendern")
+            if(trainer.randomizedIndex.contains(index) && !keepOriginalIndexes.contains(index)){
                 json localMapping = pokemonMapping;
 
                 QRandomGenerator randGen(seeds[index]);
@@ -560,7 +560,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
     qDebug()<<"Checking and Getting indexes for Trainers";
     bool trainersCanBeRandomized = false;
 
-    if(allTrainers.randomize == true){
+    if(allTrainers.randomize == true || allTrainers.keepOriginal == true){
         paldea = true;
         trainersCanBeRandomized = true;
         allTrainers.randomizedIndex = area1;
@@ -661,7 +661,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         }
     }
 
-    if(rivalTrainers.randomize == true){
+    if(rivalTrainers.randomize == true || rivalTrainers.keepOriginal == true){
         paldea = true;
         trainersCanBeRandomized = true;
         rivalTrainers.randomizedIndex = penny;
@@ -692,7 +692,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         }
     }
 
-    if(gymTrainers.randomize == true){
+    if(gymTrainers.randomize == true || gymTrainers.keepOriginal == true){
         paldea = true;
         trainersCanBeRandomized = true;
         gymTrainers.randomizedIndex = electricGym;
@@ -705,7 +705,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         gymTrainers.randomizedIndex += normalGym;
     }
 
-    if(e4Trainers.randomize == true){
+    if(e4Trainers.randomize == true || e4Trainers.keepOriginal == true){
         paldea = true;
         trainersCanBeRandomized = true;
         e4Trainers.randomizedIndex = e4Dragon;
@@ -732,7 +732,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         }
     }
 
-    if(championTrainers.randomize == true){
+    if(championTrainers.randomize == true || championTrainers.keepOriginal == true){
         paldea = true;
         trainersCanBeRandomized = true;
         championTrainers.randomizedIndex = geeta;
@@ -742,7 +742,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         }
     }
 
-    if(routeTrainers.randomize == true){
+    if(routeTrainers.randomize == true || routeTrainers.keepOriginal == true){
         paldea = true;
         trainersCanBeRandomized = true;
         routeTrainers.randomizedIndex = area1;
@@ -786,7 +786,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         }
     }
 
-    if(raidTrainers.randomize == true){
+    if(raidTrainers.randomize == true || raidTrainers.keepOriginal == true){
         paldea = true;
         trainersCanBeRandomized = true;
         raidTrainers.randomizedIndex = paldeaRaids;
@@ -796,7 +796,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         }
     }
 
-    if(paradisePokemon.randomize == true){
+    if(paradisePokemon.randomize == true || paradisePokemon.keepOriginal == true){
         paldea = true;
         trainersCanBeRandomized = true;
         paradisePokemon.randomizedIndex = paradaiseProtocol;
@@ -807,7 +807,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
 
     // Kitakami
 
-    if(allKitakamiTrainers.randomize == true){
+    if(allKitakamiTrainers.randomize == true || allKitakamiTrainers.keepOriginal == true){
         kita = true;
         trainersCanBeRandomized = true;
         allKitakamiTrainers.randomizedIndex = area1_dlc1;
@@ -828,7 +828,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         allKitakamiTrainers.randomizedIndex += oNareFamily;
     }
 
-    if(kitakamiRivals.randomize == true){
+    if(kitakamiRivals.randomize == true || kitakamiRivals.keepOriginal == true){
         kita = true;
         trainersCanBeRandomized = true;
         kitakamiRivals.randomizedIndex = kieran_dlc1;
@@ -839,14 +839,14 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         kitakamiRivals.randomizedIndex += oNareFamily;
     }
 
-    if(ogreClanTrainers.randomize == true){
+    if(ogreClanTrainers.randomize == true || ogreClanTrainers.keepOriginal == true){
         kita = true;
         trainersCanBeRandomized = true;
         ogreClanTrainers.randomizedIndex = ogreClan;
         ogreClanTrainers.randomizedIndex += ogreClanBoss;
     }
 
-    if(kitakamiRouteTrainers.randomize == true){
+    if(kitakamiRouteTrainers.randomize == true || kitakamiRouteTrainers.keepOriginal == true){
         kita = true;
         trainersCanBeRandomized = true;
         kitakamiRouteTrainers.randomizedIndex = area1_dlc1;
@@ -859,7 +859,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         kitakamiRouteTrainers.randomizedIndex += area10_dlc1;
     }
 
-    if(kitakamiRaidTrainers.randomize == true){
+    if(kitakamiRaidTrainers.randomize == true || kitakamiRaidTrainers.keepOriginal == true){
         kita = true;
         trainersCanBeRandomized = true;
         kitakamiRaidTrainers.randomizedIndex = kitakamiRaids;
@@ -867,7 +867,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
 
     // Blueberry
 
-    if(allBlueberryTrainers.randomize == true){
+    if(allBlueberryTrainers.randomize == true || allBlueberryTrainers.keepOriginal == true){
         blueberry = true;
         trainersCanBeRandomized = true;
         allBlueberryTrainers.randomizedIndex = kieran;
@@ -889,7 +889,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         allBlueberryTrainers.randomizedIndex += blueberryRaids;
     }
 
-    if(blueberryRivals.randomize == true){
+    if(blueberryRivals.randomize == true || blueberryRivals.keepOriginal == true){
         blueberry = true;
         trainersCanBeRandomized = true;
         blueberryRivals.randomizedIndex = kieran;
@@ -897,7 +897,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         blueberryRivals.randomizedIndex += shiano;
     }
 
-    if(bb4Trainers.randomize == true){
+    if(bb4Trainers.randomize == true || bb4Trainers.keepOriginal == true){
         blueberry = true;
         trainersCanBeRandomized = true;
         bb4Trainers.randomizedIndex = schoolwars;
@@ -910,7 +910,7 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         bb4Trainers.randomizedIndex += bb4Dragon;
     }
 
-    if(blueberryRouteTrainers.randomize == true){
+    if(blueberryRouteTrainers.randomize == true || blueberryRouteTrainers.keepOriginal == true){
         blueberry = true;
         trainersCanBeRandomized = true;
         blueberryRouteTrainers.randomizedIndex = area1_dlc2;
@@ -920,16 +920,26 @@ bool svTrainers::checkRandomization(bool& paldea, bool& kita, bool& blueberry){
         blueberryRouteTrainers.randomizedIndex += epilogue;
     }
 
-    if(blueberryRaidTrainers.randomize == true){
+    if(blueberryRaidTrainers.randomize == true || blueberryRaidTrainers.keepOriginal == true){
         blueberry = true;
         trainersCanBeRandomized = true;
         blueberryRaidTrainers.randomizedIndex = blueberryRaids;
     }
 
-    if(hiddenTreasure.randomize == true){
+    if(hiddenTreasure.randomize == true || hiddenTreasure.keepOriginal == true){
         blueberry = true;
         trainersCanBeRandomized = true;
         hiddenTreasure.randomizedIndex = terapagos;
+    }
+
+    // Gruppen mit "Nicht aendern" sammeln: diese Trainer werden von keiner Gruppe veraendert
+    keepOriginalIndexes.clear();
+    for(trainerSettings* group : allGroups()){
+        if(group->keepOriginal == true){
+            for(int index : group->randomizedIndex){
+                keepOriginalIndexes.insert(index);
+            }
+        }
     }
 
     return trainersCanBeRandomized;

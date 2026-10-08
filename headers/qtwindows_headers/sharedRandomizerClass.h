@@ -112,6 +112,7 @@ class sharedRandomizerClass{
             bool levelAppropriateEvos = false; // keine Entwicklungen, die auf dem Level noch nicht moeglich waeren
             bool smartMovesets = false;     // starke Movesets statt Spiel-Standard
             bool smartMovesTMs = false;     // TM-Attacken fuer Movesets erlauben
+            bool keepOriginal = false;      // Gruppe bleibt original (wird auch von "Alle" nicht veraendert)
 
             allowedPokemonLimiter allowedPokemons;
         };
@@ -887,7 +888,6 @@ class sharedRandomizerClass{
 
         QMap<QString, QStringList> nationalDexPokemonNamesAndForms;
 };
-#endif // SHAREDRANDOMIZERCLASS_H
 
 /*
  * This function returns the json object of the passed in file
@@ -1250,3 +1250,5 @@ inline bool sharedRandomizerClass::allowedTMMove(int move){
 
     return true;
 }
+
+#endif // SHAREDRANDOMIZERCLASS_H

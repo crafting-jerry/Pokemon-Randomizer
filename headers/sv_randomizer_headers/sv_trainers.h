@@ -23,6 +23,15 @@ class svTrainers: public QObject, public SVShared{
         // Zeigt auf randomisierte Personal-Daten, falls diese vorher veraendert wurden
         json* personalOverride = nullptr;
 
+        // --- Gruppen, die original bleiben sollen ---
+        QSet<int> keepOriginalIndexes;
+        QList<trainerSettings*> allGroups(){
+            return {&allTrainers, &rivalTrainers, &gymTrainers, &e4Trainers, &championTrainers,
+                    &paradisePokemon, &routeTrainers, &raidTrainers,
+                    &allKitakamiTrainers, &kitakamiRivals, &ogreClanTrainers, &kitakamiRouteTrainers, &kitakamiRaidTrainers,
+                    &allBlueberryTrainers, &blueberryRivals, &bb4Trainers, &hiddenTreasure, &blueberryRouteTrainers, &blueberryRaidTrainers};
+        }
+
         // --- Spoiler-Log (HTML) ---
         bool writeSpoiler = true;
         void writeSpoilerLog();

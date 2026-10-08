@@ -205,7 +205,8 @@ void SVRandomizerWindow::runRandomizer(){
             randomizer.svRandomizerPersonal.randomizeEvolutions == true ||
             randomizer.svRandomizerPersonal.randomizeMoveset == true ||
             randomizer.svRandomizerPersonal.randomizeTypes == true ||
-            randomizer.svRandomizerPersonal.randomizeTMs == true){
+            randomizer.svRandomizerPersonal.randomizeTMs == true ||
+            randomizer.svRandomizerPersonal.fixEvolutions == true){
 
             randomizer.svRandomizerPersonal.randomize();
             // Trainer sollen die veraenderten Typen/Attacken/Entwicklungen kennen

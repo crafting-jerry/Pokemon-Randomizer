@@ -1,5 +1,6 @@
 #include "headers/qtwindows_headers/AlternateWindow.h"
 #include "headers/sv_randomizer_headers/SVRandomizerWindow.h"
+#include "headers/modern_ui/ModernRandomizerWindow.h"
 #include <QApplication>
 #include <QScreen>
 #include <QStackedWidget>
@@ -12,10 +13,18 @@ AlternateWindow::AlternateWindow(int id, QWidget *parent) : QWidget(parent), win
 
     switch(id){
         case 0:
+        {
             svrandomizer = new SVRandomizerWindow();
             svrandomizer->createLayout();
-            stackedWidget->addWidget(svrandomizer);
+
+            // Neue Oberflaeche. Die klassische Ansicht bleibt unsichtbar als Randomizer-Kern erhalten.
+            svrandomizer->setParent(this);
+            svrandomizer->hide();
+            ModernRandomizerWindow* modern = new ModernRandomizerWindow(svrandomizer);
+            stackedWidget->addWidget(modern);
+            layout->setContentsMargins(0, 0, 0, 0);
             break;
+        }
         case 1:
             break;
         default:
