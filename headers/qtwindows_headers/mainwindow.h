@@ -1,40 +1,33 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include <string>
 #include <QMainWindow>
-#include <QToolBar>
-#include <QListWidget>
-#include <QTabBar>
-#include <QGridLayout>
-#include <QPushButton>
-#include <QVector>
 #include <QStackedWidget>
+#include <QMap>
 #include "AlternateWindow.h"
 
+class GameSelectPage;
+
+// ---------------------------------------------------------------------------
+// Hauptfenster: zeigt zuerst die Spielauswahl, danach den Randomizer des
+// gewaehlten Spiels. "Spielauswahl" in der Seitenleiste fuehrt zurueck.
+// ---------------------------------------------------------------------------
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
     MainWindow(QWidget *parent = nullptr);
-    void setupAutoUpdater();
     void alwaysOnTop(bool always);
 
 private slots:
-    void openAlternateWindow(int index);
-    void updateFavorites();
+    void openGame(int id);
+    void showGameSelect();
     void checkForUpdates();
-    void switchTab(int i);
-    void closeTab(int i);
-    bool eventFilter(QObject *o, QEvent *e);
 
 private:
     QStackedWidget *stackedWidget;
-    QWidget *centralWidget;
-    QGridLayout *gridLayout;
-    QListWidget *sidebar;
-    QTabBar *topBar;
-    QVector<AlternateWindow *> alternateWindows;
+    GameSelectPage *gameSelect;
+    QMap<int, AlternateWindow *> gameWindows; // werden beim ersten Oeffnen erstellt
 };
 
 #endif // MAINWINDOW_H

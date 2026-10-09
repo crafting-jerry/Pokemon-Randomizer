@@ -33,6 +33,9 @@ public:
     explicit ModernRandomizerWindow(SVRandomizerWindow* classic, QWidget* parent = nullptr);
     ~ModernRandomizerWindow();
 
+signals:
+    void backRequested();
+
 private:
     enum GroupMode { SameAsBase = 0, Own = 1, KeepOriginal = 2 };
 

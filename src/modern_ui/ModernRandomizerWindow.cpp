@@ -129,6 +129,13 @@ QWidget* ModernRandomizerWindow::buildSidebar() {
     layout->setContentsMargins(12, 16, 12, 12);
     layout->setSpacing(2);
 
+    auto* back = new QPushButton("← Spielauswahl", sidebar);
+    back->setObjectName("backButton");
+    back->setCursor(Qt::PointingHandCursor);
+    connect(back, &QPushButton::clicked, this, &ModernRandomizerWindow::backRequested);
+    layout->addWidget(back, 0, Qt::AlignLeft);
+    layout->addSpacing(6);
+
     auto* title = new QLabel("Purpur Randomizer", sidebar);
     title->setObjectName("appTitle");
     auto* subtitle = new QLabel("Karmesin und Purpur", sidebar);

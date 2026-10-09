@@ -159,6 +159,13 @@ QString styleSheet() {
 
 #modernRoot #card { background: #1b1f29; border: 1px solid #2c3140; border-radius: 12px; }
 #modernRoot #cardTitle { font-size: 15px; font-weight: 600; }
+#modernRoot #badgeReady { background: #1e3a2c; color: #7ee2a8; border-radius: 9px; padding: 2px 9px; font-size: 11px; }
+#modernRoot #gameTitle { font-size: 16px; font-weight: 600; }
+#modernRoot #gameTitleSoon { font-size: 16px; font-weight: 600; color: #9097a8; }
+#modernRoot #gameFeatures { color: #6f7689; font-size: 12px; }
+#modernRoot #backButton { background: transparent; border: none; color: #9097a8; text-align: left; padding: 4px 6px; }
+#modernRoot #backButton:hover { color: #d6ccff; }
+#modernRoot #primary:disabled { background: #2c3140; color: #5c6274; }
 #modernRoot #badge { background: #262b38; color: #9097a8; border-radius: 9px; padding: 2px 9px; font-size: 11px; }
 #modernRoot #groupRow { border-top: 1px solid #262b38; }
 #modernRoot #subEditor { background: #171a23; border: 1px solid #2c3140; border-radius: 10px; }

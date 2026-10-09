@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
     #endif
 
     MainWindow mainWindow;
-    mainWindow.setWindowTitle("Universal Pokemon Tool");
+    mainWindow.setWindowTitle("Pokémon Randomizer");
     mainWindow.setWindowIcon(QIcon("assets/icons/main.ico"));
 
     // Get the screen where the mouse is currently located
@@ -101,7 +101,7 @@ int main(int argc, char *argv[]) {
     QSettings settings("Pokemon Randomizer", "Main");
 
     // Default to true for "Always on Top"
-    bool alwaysOnTopValue = settings.value("AlwaysOnTop", true).toBool();
+    bool alwaysOnTopValue = settings.value("AlwaysOnTop", false).toBool();
     mainWindow.alwaysOnTop(alwaysOnTopValue);
 
     return app.exec();

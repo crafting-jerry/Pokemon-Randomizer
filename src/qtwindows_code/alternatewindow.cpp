@@ -22,6 +22,7 @@ AlternateWindow::AlternateWindow(int id, QWidget *parent) : QWidget(parent), win
             svrandomizer->hide();
             ModernRandomizerWindow* modern = new ModernRandomizerWindow(svrandomizer);
             stackedWidget->addWidget(modern);
+            connect(modern, &ModernRandomizerWindow::backRequested, this, &AlternateWindow::backRequested);
             layout->setContentsMargins(0, 0, 0, 0);
             break;
         }

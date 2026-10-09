@@ -19,6 +19,8 @@ class AlternateWindow : public QWidget {
 public:
     AlternateWindow(int id, QWidget *parent = nullptr);
     SVRandomizerWindow *svrandomizer;
+signals:
+    void backRequested();
 private:
     QLabel *label;
     int windowId;
