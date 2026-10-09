@@ -49,6 +49,11 @@ const QString TrainerPoke = "bin/trainer/trainer_poke";
 }
 
 QByteArray readFile(const QString& path, bool* ok = nullptr);
+
+// Spieltexte (bin/message/<Sprache>/common/<name>.dat). Deutsch, sonst Englisch, sonst leer.
+// Index = Zeile, z. B. monsname -> Nationaldex, wazaname -> Attacken-ID, trname -> Trainer-Index.
+QStringList readMessage(const QString& romfs, const QString& name);
+QStringList decodeMessage(const QByteArray& data);
 bool writeFile(const QString& path, const QByteArray& data);
 
 // ----------------------------------------------------------- Pokemon-Daten
@@ -187,6 +192,8 @@ struct TrainerPoke {
     void setAbility(int value);
     bool shiny() const;
     void setShiny(bool value);
+    bool dynamaxAllowed() const;            // Bit 31 der DVs: darf im Stadion dynamaximieren
+    void setDynamaxAllowed(bool value);
     void setPerfectIVs();
 };
 
@@ -199,6 +206,8 @@ struct Trainer {
     int trainerClass() const;
     int battleMode() const { return static_cast<quint8>(data[2]); } // 0 Einzel, 1 Doppel
     int teamSize() const { return static_cast<quint8>(data[3]); }
+    quint32 ai() const;                      // KI-Flags (1 Basis, 2 Stark, 4 Experte, 8 Doppel, 0x20 Items, 0x40 Wechseln)
+    void setAi(quint32 value);
     bool isPlaceholder() const { return teamSize() == 0; } // nicht im Spiel verwendet
     QByteArray pokeFile() const;
 };

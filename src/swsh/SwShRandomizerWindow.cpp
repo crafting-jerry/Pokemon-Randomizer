@@ -1,5 +1,6 @@
 #include "headers/swsh/SwShRandomizerWindow.h"
 #include "headers/modern_ui/modern_widgets.h"
+#include "headers/swsh/SwShTrainerEditor.h"
 
 #include <QApplication>
 #include <QDesktopServices>
@@ -10,6 +11,14 @@
 #include <QSettings>
 #include <QStyle>
 #include <QUrl>
+#include <QDateTime>
+#include <QJsonDocument>
+#include <QMessageBox>
+#include <QCryptographicHash>
+#include <QRandomGenerator>
+#include <QSignalBlocker>
+#include <QFile>
+#include <QTextStream>
 
 using namespace modernui;
 
@@ -36,10 +45,7 @@ SwShRandomizerWindow::SwShRandomizerWindow(QWidget* parent) : QWidget(parent) {
 
     pages = new QStackedWidget(this);
     pages->addWidget(buildStartPage());
-    pages->addWidget(buildComingSoonPage("Trainer", "Teams aller Trainer, Arenaleiter und Champs.",
-        "Kommt im nächsten Schritt: Typ-Arenen behalten ihren Typ (Yarro, Kate, Kabu, Saida/Nio, Papella, "
-        "Mac/Mel, Nezz und Roy), voll entwickelte Pokémon ab einstellbarem Level, sinnvolle Attacken, "
-        "Dynamax/Gigadynamax-Regeln und ein Spoiler-Log."));
+    pages->addWidget(buildTrainerPage());
     pages->addWidget(buildComingSoonPage("Starter & Geschenke", "Starter, geschenkte und statische Pokémon.",
         "Kommt später: Chimpep, Hopplo und Memmeon sowie Geschenk- und Legendären-Begegnungen."));
     pages->addWidget(buildComingSoonPage("Wilde Pokémon", "Pokémon in hohem Gras, Gewässern und der Naturzone.",
@@ -115,7 +121,8 @@ QWidget* SwShRandomizerWindow::buildBottomBar() {
     startButton = new QPushButton("Randomisieren", bar);
     startButton->setObjectName("primary");
     startButton->setEnabled(false);
-    startButton->setToolTip("Die Randomisierung für Schwert/Schild folgt in den nächsten Schritten.");
+    startButton->setCursor(Qt::PointingHandCursor);
+    connect(startButton, &QPushButton::clicked, this, &SwShRandomizerWindow::startRandomizer);
     layout->addWidget(startButton);
     return bar;
 }
@@ -238,6 +245,7 @@ QWidget* SwShRandomizerWindow::buildStartPage() {
         seedEdit->setFixedWidth(260);
         row->addWidget(seedEdit);
         general->body()->addLayout(row);
+        connect(seedEdit, &QLineEdit::textChanged, this, [this]() { if (activeInfo) updateStatus(); });
     }
     spoilerLog = new QCheckBox("Spoiler-Log erstellen", general);
     spoilerLog->setChecked(true);
@@ -437,15 +445,237 @@ void SwShRandomizerWindow::showMessages() {
 }
 
 void SwShRandomizerWindow::updateStatus() {
+    const bool trainers = trainerSettings.enabled;
     if (files) {
-        activeInfo->setText(swsh::versionName(check.version == swsh::Version::Unknown ? swsh::Version::Sword
-                                                                                       : check.version)
-                            + (check.version == swsh::Version::Unknown ? " oder Schild" : QString())
-                            + " bereit");
-        detailInfo->setText("Spieldateien geladen. Die Randomizer-Bereiche folgen in den nächsten Schritten.");
+        QString game = check.version == swsh::Version::Unknown ? QString("Schwert/Schild")
+                                                               : swsh::versionName(check.version);
+        activeInfo->setText(trainers ? "Aktiv: Trainer" : "Noch nichts ausgewählt");
+        QString seed = seedEdit->text().trimmed();
+        detailInfo->setText(game + "  ·  Seed: " + (seed.isEmpty() ? QString("zufällig") : seed));
+        startButton->setEnabled(trainers);
+        startButton->setToolTip(trainers ? QString() : QString("Schalte zuerst auf der Seite „Trainer“ die Randomisierung ein."));
     } else {
         activeInfo->setText("Spieldateien fehlen");
         detailInfo->setText("Gib auf der Start-Seite den RomFS- und ExeFS-Ordner deines Dumps an.");
+        startButton->setEnabled(false);
+        startButton->setToolTip("Zuerst die Spieldateien auf der Start-Seite angeben.");
+    }
+}
+
+void SwShRandomizerWindow::showPage(int index) {
+    nav->setCurrentRow(index);
+}
+
+// ---------------------------------------------------------------- Trainer
+
+QWidget* SwShRandomizerWindow::buildTrainerPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(8);
+        trainerSwitch = new QCheckBox("Trainer randomisieren", content);
+        trainerSwitch->setObjectName("masterSwitch");
+        row->addWidget(trainerSwitch);
+        row->addWidget(new InfoButton("Schaltet die Randomisierung aller Trainer ein oder aus. Gilt für Schwert und "
+                                      "Schild, mit und ohne Erweiterungspass.", content));
+        row->addStretch();
+        layout->addLayout(row);
+        connect(trainerSwitch, &QCheckBox::toggled, this, [this](bool on) {
+            trainerSettings.enabled = on;
+            trainerContent->setEnabled(on);
+            updateStatus();
+        });
+    }
+
+    trainerContent = new QWidget(content);
+    auto* inner = new QVBoxLayout(trainerContent);
+    inner->setContentsMargins(0, 0, 0, 0);
+    inner->setSpacing(12);
+    layout->addWidget(trainerContent);
+
+    auto* baseCard = new Card("Grundeinstellungen", "gilt für alle Trainer", trainerContent);
+    baseEditor = new SwShTrainerEditor(&trainerSettings.base, baseCard);
+    baseCard->body()->addWidget(baseEditor);
+    inner->addWidget(baseCard);
+
+    auto* typeCard = new Card("Typ-Trainer", QString(), trainerContent);
+    typeThemeBox = new QCheckBox("Typ-Trainer behalten ihren Typ", typeCard);
+    typeCard->body()->addLayout(rowWithInfo(typeThemeBox,
+        "Trainer mit festem Typ bekommen nur zufällige Pokémon dieses Typs. Gilt automatisch für alle Gruppen."));
+    typeCard->body()->addWidget(mutedLabel(
+        "Betrifft: alle Arenen mit Arenatrainern und Revanchen (Yarro, Kate, Kabu, Saida/Nio, Papella, Mac/Mel, "
+        "Nezz, Roy, Betys, Mary), die Arena-Challenger im Champ-Cup sowie Sophora und Saverio.", typeCard));
+    connect(typeThemeBox, &QCheckBox::toggled, this, [this](bool on) { trainerSettings.keepTypeTheme = on; });
+    inner->addWidget(typeCard);
+
+    auto* groupsCard = new Card("Ausnahmen für einzelne Gruppen", "optional", trainerContent);
+    groupsCard->body()->addWidget(mutedLabel("Normalerweise gelten die Grundeinstellungen für alle. Hier kannst du "
+                                             "einzelnen Gruppen eigene Einstellungen geben oder sie unverändert lassen.",
+                                             groupsCard));
+    auto* collapsible = new Collapsible("Gruppen anzeigen", false, groupsCard);
+    groupsCard->body()->addWidget(collapsible);
+
+    for (int g = 0; g < swsh::GroupCount; g++) {
+        if (g == swsh::GroupIsle) {
+            auto* label = new QLabel("Erweiterungspass", groupsCard);
+            label->setObjectName("sectionLabel");
+            collapsible->body()->addWidget(label);
+        }
+        const swsh::GroupInfo info = swsh::groupInfo(g);
+        auto* row = new QWidget(groupsCard);
+        row->setObjectName("groupRow");
+        row->setAttribute(Qt::WA_StyledBackground, true);
+        auto* rowLayout = new QVBoxLayout(row);
+        rowLayout->setContentsMargins(0, 6, 0, 6);
+        rowLayout->setSpacing(6);
+
+        auto* head = new QHBoxLayout();
+        head->addWidget(new QLabel(info.title, row));
+        head->addWidget(new InfoButton(info.info, row));
+        head->addStretch();
+        groupSelectors[g] = new SegmentedControl({"Wie oben", "Eigene", "Nicht ändern"}, row);
+        head->addWidget(groupSelectors[g]);
+        rowLayout->addLayout(head);
+
+        groupEditorBoxes[g] = new QWidget(row);
+        groupEditorBoxes[g]->setObjectName("subEditor");
+        groupEditorBoxes[g]->setAttribute(Qt::WA_StyledBackground, true);
+        auto* boxLayout = new QVBoxLayout(groupEditorBoxes[g]);
+        boxLayout->setContentsMargins(14, 12, 14, 12);
+        groupEditors[g] = new SwShTrainerEditor(&trainerSettings.own[g], groupEditorBoxes[g]);
+        boxLayout->addWidget(groupEditors[g]);
+        groupEditorBoxes[g]->setVisible(false);
+        rowLayout->addWidget(groupEditorBoxes[g]);
+        collapsible->body()->addWidget(row);
+
+        connect(groupSelectors[g], &SegmentedControl::changed, this, [this, g](int mode) {
+            trainerSettings.modes[g] = mode;
+            if (mode == swsh::OwnSettings && !ownInitialized[g]) {
+                trainerSettings.own[g] = trainerSettings.base; // Startpunkt: die Grundeinstellungen
+                ownInitialized[g] = true;
+                groupEditors[g]->refresh();
+            }
+            groupEditorBoxes[g]->setVisible(mode == swsh::OwnSettings);
+        });
+    }
+    inner->addWidget(groupsCard);
+    layout->addStretch();
+
+    refreshTrainerPage();
+    return wrapPage("Trainer", "Lege fest, wie die Teams aller Trainer zufällig zusammengestellt werden.", content);
+}
+
+void SwShRandomizerWindow::refreshTrainerPage() {
+    {
+        QSignalBlocker b1(trainerSwitch), b2(typeThemeBox);
+        trainerSwitch->setChecked(trainerSettings.enabled);
+        typeThemeBox->setChecked(trainerSettings.keepTypeTheme);
+    }
+    trainerContent->setEnabled(trainerSettings.enabled);
+    baseEditor->refresh();
+    for (int g = 0; g < swsh::GroupCount; g++) {
+        QSignalBlocker block(groupSelectors[g]);
+        groupSelectors[g]->setCurrent(trainerSettings.modes[g]);
+        groupEditors[g]->refresh();
+        groupEditorBoxes[g]->setVisible(trainerSettings.modes[g] == swsh::OwnSettings);
+    }
+}
+
+// ---------------------------------------------------------- Randomisieren
+
+namespace {
+quint64 seedFromText(const QString& text) {
+    bool ok = false;
+    quint64 value = text.toULongLong(&ok);
+    if (ok) {
+        return value;
+    }
+    QByteArray hash = QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256);
+    quint64 result = 0;
+    for (int i = 0; i < 8; i++) {
+        result = (result << 8) | static_cast<quint8>(hash[i]);
+    }
+    return result;
+}
+} // namespace
+
+bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* error) {
+    if (!files) {
+        if (error) *error = "Die Spieldateien sind nicht geladen.";
+        return false;
+    }
+    QString seedText = seedEdit->text().trimmed();
+    if (seedText.isEmpty()) {
+        seedText = QString::number(QRandomGenerator::global()->bounded(1000000000));
+    }
+    const quint64 seed = seedFromText(seedText);
+
+    swsh::GameFiles work = *files; // Original bleibt fuer weitere Durchlaeufe unveraendert
+    swsh::TrainerRandomizerResult result = swsh::randomizeTrainers(work, trainerSettings, seed);
+
+    QDir(outputFolder).removeRecursively();
+    const QString romfsOut = outputFolder + "/romfs";
+    if (!work.trainers.save(romfsOut, result.changedIndexes)) {
+        if (error) *error = "Die Trainer-Dateien konnten nicht geschrieben werden:\n" + romfsOut;
+        return false;
+    }
+
+    if (spoilerLog->isChecked()) {
+        swsh::GameTexts texts;
+        texts.load(QDir::fromNativeSeparators(romfsEdit->text().trimmed()));
+        swsh::writeTrainerSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, seedText,
+                                  check.version);
+    }
+
+    QFile info(outputFolder + "/Info.txt");
+    if (info.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&info);
+        out << "Pokémon Schwert/Schild Randomizer\n";
+        out << "Erstellt: " << QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm") << "\n";
+        out << "Seed: " << seedText << "\n";
+        out << "Spiel: " << swsh::versionName(check.version) << "\n";
+        out << "Geänderte Trainer: " << result.randomized << "\n\n";
+        out << "Einstellungen:\n" << QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson();
+    }
+    lastSeed = seedText;
+    return true;
+}
+
+void SwShRandomizerWindow::startRandomizer() {
+    saveSettings();
+    const QString output = QDir::current().filePath("Randomizers-Output/Schwert-Schild/Randomizer-1");
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = randomizeTo(output, &error);
+    QApplication::restoreOverrideCursor();
+
+    if (!ok) {
+        QMessageBox::warning(this, "Randomisieren", error);
+        return;
+    }
+
+    QMessageBox box(this);
+    box.setWindowTitle("Fertig");
+    box.setIcon(QMessageBox::Information);
+    QString tid = swsh::titleId(check.version);
+    box.setText("Der Randomizer ist fertig (Seed " + lastSeed + ").");
+    box.setInformativeText(
+        "Kopiere den Ordner „romfs“ aus Randomizer-1 in einen Mod-Ordner deines Spiels:\n\n"
+        "• Ryujinx: Rechtsklick auf das Spiel → „Mod-Verzeichnis öffnen“, dort einen Ordner (z. B. Randomizer) anlegen "
+        "und „romfs“ hineinkopieren.\n"
+        "• Switch (Atmosphère): atmosphere/contents/" + (tid.isEmpty() ? QString("<Title-ID>") : tid) + "/romfs");
+    QPushButton* openFolder = box.addButton("Ordner öffnen", QMessageBox::ActionRole);
+    QPushButton* openSpoiler = spoilerLog->isChecked() ? box.addButton("Spoiler-Log öffnen", QMessageBox::ActionRole) : nullptr;
+    box.addButton(QMessageBox::Close);
+    box.exec();
+    if (box.clickedButton() == openFolder) {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(output));
+    } else if (openSpoiler != nullptr && box.clickedButton() == openSpoiler) {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(output + "/Spoiler-Log.html"));
     }
 }
 
@@ -457,12 +687,21 @@ void SwShRandomizerWindow::saveSettings() const {
     settings.setValue("ExeFS", exefsEdit->text().trimmed());
     settings.setValue("Seed", seedEdit->text());
     settings.setValue("SpoilerLog", spoilerLog->isChecked());
+    settings.setValue("Trainer", QString::fromUtf8(QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson(QJsonDocument::Compact)));
 }
 
 void SwShRandomizerWindow::loadSettings() {
     QSettings settings(kSettingsOrg, kSettingsApp);
     seedEdit->setText(settings.value("Seed").toString());
     spoilerLog->setChecked(settings.value("SpoilerLog", true).toBool());
+    const QJsonDocument trainerJson = QJsonDocument::fromJson(settings.value("Trainer").toString().toUtf8());
+    if (trainerJson.isObject()) {
+        swsh::settingsFromJson(trainerJson.object(), trainerSettings);
+        for (int g = 0; g < swsh::GroupCount; g++) {
+            ownInitialized[g] = trainerSettings.modes[g] == swsh::OwnSettings;
+        }
+        refreshTrainerPage();
+    }
     const QString romfs = settings.value("RomFS").toString();
     const QString exefs = settings.value("ExeFS").toString();
     if (romfs.isEmpty() && exefs.isEmpty()) {

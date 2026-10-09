@@ -75,6 +75,71 @@ bool writeFile(const QString& path, const QByteArray& data) {
     return file.write(data) == data.size();
 }
 
+// ------------------------------------------------------------- Spieltexte
+
+// Textformat der Switch-Spiele (Gen 7/8): Zeilentabelle, jede Zeile mit
+// einem rollierenden 16-Bit-Schluessel verschluesselt.
+QStringList decodeMessage(const QByteArray& data) {
+    QStringList lines;
+    if (data.size() < 0x14) {
+        return lines;
+    }
+    const int lineCount = readU16(data, 0x02);
+    const int sectionOffset = static_cast<int>(readU32(data, 0x0C));
+    quint16 key = 0x7C89;
+    for (int i = 0; i < lineCount; i++) {
+        const int entry = sectionOffset + 4 + i * 8;
+        if (entry + 8 > data.size()) {
+            break;
+        }
+        const int offset = sectionOffset + static_cast<qint32>(readU32(data, entry));
+        const int length = readU16(data, entry + 4);
+
+        QVector<quint16> chars;
+        quint16 k = key;
+        for (int j = 0; j < length && offset + j * 2 + 2 <= data.size(); j++) {
+            chars.append(readU16(data, offset + j * 2) ^ k);
+            k = static_cast<quint16>((k << 3) | (k >> 13));
+        }
+        key = static_cast<quint16>(key + 0x2983);
+
+        QString text;
+        for (int j = 0; j < chars.size(); j++) {
+            const quint16 c = chars[j];
+            if (c == 0) {
+                break;
+            }
+            if (c == 0x10) { // Variable: [0x10, Laenge, ...]
+                j += (j + 1 < chars.size()) ? chars[j + 1] + 1 : 1;
+                continue;
+            }
+            switch (c) {
+            case 0xE07F: text += ' '; break;
+            case 0xE08D: text += QChar(0x2026); break;
+            case 0xE08E: text += QChar(0x2642); break;
+            case 0xE08F: text += QChar(0x2640); break;
+            default: text += QChar(c); break;
+            }
+        }
+        lines.append(text);
+    }
+    return lines;
+}
+
+QStringList readMessage(const QString& romfs, const QString& name) {
+    for (const QString& language : {QString("German"), QString("English")}) {
+        bool ok = false;
+        QByteArray data = readFile(romfs + "/bin/message/" + language + "/common/" + name + ".dat", &ok);
+        if (ok) {
+            QStringList lines = decodeMessage(data);
+            if (!lines.isEmpty()) {
+                return lines;
+            }
+        }
+    }
+    return QStringList();
+}
+
 // ------------------------------------------------------------- Dump-Pruefung
 
 QString versionName(Version version) {
@@ -419,7 +484,19 @@ void TrainerPoke::setPerfectIVs() {
     writeU32(raw, 0x1C, iv);
 }
 
+bool TrainerPoke::dynamaxAllowed() const {
+    return (readU32(raw, 0x1C) >> 31) & 1;
+}
+
+void TrainerPoke::setDynamaxAllowed(bool value) {
+    quint32 iv = readU32(raw, 0x1C);
+    iv = (iv & ~0x80000000u) | (value ? 0x80000000u : 0u);
+    writeU32(raw, 0x1C, iv);
+}
+
 int Trainer::trainerClass() const { return readU16(data, 0x00); }
+quint32 Trainer::ai() const { return readU32(data, 0x0C); }
+void Trainer::setAi(quint32 value) { writeU32(data, 0x0C, value); }
 
 QByteArray Trainer::pokeFile() const {
     QByteArray out;

@@ -216,8 +216,14 @@ void TrainerSmartData::collectMovePool(qint64 k, int level, bool includeTMs, QSe
             }
         }
         if (includeTMs) {
+            // TM-Attacken passend zum Level: starke Attacken und Statusattacken erst spaeter,
+            // damit fruehe Trainer nicht mit Hydropumpe oder Drachentanz auftauchen
+            const int maxPower = 40 + 2 * level;
             for (int tm : info.tmMoves) {
-                pool.insert(tm);
+                const MoveInfo m = moves.value(tm);
+                if (m.damaging ? m.power <= maxPower : level >= 20) {
+                    pool.insert(tm);
+                }
             }
         }
     }

@@ -19,6 +19,10 @@
 #include <memory>
 
 #include "swsh_files.h"
+#include "swsh_trainers.h"
+
+class SwShTrainerEditor;
+namespace modernui { class SegmentedControl; }
 
 class SwShRandomizerWindow : public QWidget {
     Q_OBJECT
@@ -29,6 +33,10 @@ public:
     // Fuer Tests: Pfade setzen und pruefen
     void setDumpPaths(const QString& romfs, const QString& exefs);
     bool dumpReady() const { return files != nullptr; }
+    // Randomisiert und schreibt romfs + Spoiler-Log nach outputFolder. Fehlertext in error.
+    bool randomizeTo(const QString& outputFolder, QString* error);
+    swsh::TrainerSettings& trainerSettingsRef() { return trainerSettings; }
+    void showPage(int index);
 
 signals:
     void backRequested();
@@ -55,6 +63,18 @@ private:
     QLabel* detailInfo = nullptr;
     QPushButton* startButton = nullptr;
 
+    // Trainer
+    swsh::TrainerSettings trainerSettings;
+    bool ownInitialized[swsh::GroupCount] = {};
+    QCheckBox* trainerSwitch = nullptr;
+    QCheckBox* typeThemeBox = nullptr;
+    QWidget* trainerContent = nullptr;
+    SwShTrainerEditor* baseEditor = nullptr;
+    SwShTrainerEditor* groupEditors[swsh::GroupCount] = {};
+    QWidget* groupEditorBoxes[swsh::GroupCount] = {};
+    modernui::SegmentedControl* groupSelectors[swsh::GroupCount] = {};
+
+    QString lastSeed;
     swsh::DumpCheck check;
     std::unique_ptr<swsh::GameFiles> files;
 
@@ -62,6 +82,9 @@ private:
     QWidget* buildBottomBar();
     QWidget* wrapPage(const QString& title, const QString& subtitle, QWidget* content);
     QWidget* buildStartPage();
+    QWidget* buildTrainerPage();
+    void refreshTrainerPage();
+    void startRandomizer();
     QWidget* buildComingSoonPage(const QString& title, const QString& subtitle, const QString& text);
     QHBoxLayout* pathRow(QWidget* parent, const QString& caption, const QString& info, QLineEdit*& edit,
                          bool romfs);
