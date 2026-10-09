@@ -55,8 +55,8 @@ QList<GameSelectPage::GameInfo> GameSelectPage::games() {
          "assets/Supported Games/image1.jpeg", true},
         {1, "Pokémon Schwert und Schild",
          "Generation 8 · inklusive Erweiterungspass",
-         "Trainer mit Typ-Arenen, wilde Pokémon, Starter und mehr",
-         "assets/Supported Games/image4.jpeg", false},
+         "Benötigt einen eigenen Dump mit Update 1.3.2 · Trainer mit Typ-Arenen, wilde Pokémon, Starter und mehr",
+         "assets/Supported Games/image4.jpeg", true, true},
         {2, "Pokémon Strahlender Diamant und Leuchtende Perle",
          "Generation 8 · Remake von Diamant und Perl",
          "Trainer, wilde Pokémon, Starter und mehr",
@@ -151,8 +151,8 @@ QWidget* GameSelectPage::buildGameCard(const GameInfo& game) {
     auto* title = new QLabel(game.title, card);
     title->setObjectName(game.available ? "gameTitle" : "gameTitleSoon");
     titleRow->addWidget(title);
-    auto* badge = new QLabel(game.available ? "Verfügbar" : "Bald verfügbar", card);
-    badge->setObjectName(game.available ? "badgeReady" : "badge");
+    auto* badge = new QLabel(game.preview ? "Im Aufbau" : (game.available ? "Verfügbar" : "Bald verfügbar"), card);
+    badge->setObjectName(game.available && !game.preview ? "badgeReady" : "badge");
     badge->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     titleRow->addWidget(badge, 0, Qt::AlignVCenter);
     titleRow->addStretch();

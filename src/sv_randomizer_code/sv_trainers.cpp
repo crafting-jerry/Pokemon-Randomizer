@@ -486,9 +486,9 @@ void svTrainers::randomize(bool paldea, bool kitakami, bool blueberry, bool boss
     // Daten fuer Level-Regeln und Movesets (randomisierte Personal-Daten haben Vorrang)
     json wazaTable = readJsonQFile("SV_FLATBUFFERS/SV_PERSONAL/waza_array_clean.json");
     json moveNames = readJsonQFile("SV_FLATBUFFERS/SV_PERSONAL/sorted_move_list.json");
-    smartData.build(pokemonMapping,
-                    personalOverride != nullptr ? *personalOverride : pokemonPersonalData,
-                    wazaTable, moveNames);
+    smartData.build(svGameData(pokemonMapping,
+                               personalOverride != nullptr ? *personalOverride : pokemonPersonalData,
+                               wazaTable, moveNames));
     for(unsigned long long i =0; i<trainersData["values"].size(); i++){
         int threadSeed = randNum.generate();
         while(seeds.contains(threadSeed)){

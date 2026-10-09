@@ -23,6 +23,7 @@ public:
         QString features;    // was randomisiert werden kann
         QString cover;       // Pfad unter assets/
         bool available;
+        bool preview = false; // oeffnebar, aber noch im Aufbau
     };
 
     explicit GameSelectPage(QWidget* parent = nullptr);

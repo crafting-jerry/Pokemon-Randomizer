@@ -1,6 +1,7 @@
 #include "headers/qtwindows_headers/AlternateWindow.h"
 #include "headers/sv_randomizer_headers/SVRandomizerWindow.h"
 #include "headers/modern_ui/ModernRandomizerWindow.h"
+#include "headers/swsh/SwShRandomizerWindow.h"
 #include <QApplication>
 #include <QScreen>
 #include <QStackedWidget>
@@ -27,7 +28,14 @@ AlternateWindow::AlternateWindow(int id, QWidget *parent) : QWidget(parent), win
             break;
         }
         case 1:
+        {
+            // Schwert/Schild: Daten kommen aus dem Dump, Pfade auf der Start-Seite
+            SwShRandomizerWindow* swshWindow = new SwShRandomizerWindow();
+            stackedWidget->addWidget(swshWindow);
+            connect(swshWindow, &SwShRandomizerWindow::backRequested, this, &AlternateWindow::backRequested);
+            layout->setContentsMargins(0, 0, 0, 0);
             break;
+        }
         default:
             label = new QLabel(QString("This is alternate window %1").arg(id + 1), this);
             layout->addWidget(label);

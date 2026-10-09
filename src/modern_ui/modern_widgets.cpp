@@ -166,6 +166,10 @@ QString styleSheet() {
 #modernRoot #backButton { background: transparent; border: none; color: #9097a8; text-align: left; padding: 4px 6px; }
 #modernRoot #backButton:hover { color: #d6ccff; }
 #modernRoot #primary:disabled { background: #2c3140; color: #5c6274; }
+#modernRoot #statusOk { color: #7ee2a8; }
+#modernRoot #statusWarn { color: #f2c46d; }
+#modernRoot #statusError { color: #ff8a8a; }
+#modernRoot #pathCaption { color: #9097a8; font-size: 12px; font-weight: 600; }
 #modernRoot #badge { background: #262b38; color: #9097a8; border-radius: 9px; padding: 2px 9px; font-size: 11px; }
 #modernRoot #groupRow { border-top: 1px solid #262b38; }
 #modernRoot #subEditor { background: #171a23; border: 1px solid #2c3140; border-radius: 10px; }
