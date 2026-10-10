@@ -19,6 +19,10 @@
 #include <QSignalBlocker>
 #include <QFile>
 #include <QTextStream>
+#include <QCompleter>
+#include <memory>
+#include <vector>
+#include <QLineEdit>
 
 using namespace modernui;
 
@@ -46,8 +50,7 @@ SwShRandomizerWindow::SwShRandomizerWindow(QWidget* parent) : QWidget(parent) {
     pages = new QStackedWidget(this);
     pages->addWidget(buildStartPage());
     pages->addWidget(buildTrainerPage());
-    pages->addWidget(buildComingSoonPage("Starter & Geschenke", "Starter, geschenkte und statische Pokémon.",
-        "Kommt später: Chimpep, Hopplo und Memmeon sowie Geschenk- und Legendären-Begegnungen."));
+    pages->addWidget(buildStartersPage());
     pages->addWidget(buildComingSoonPage("Wilde Pokémon", "Pokémon in hohem Gras, Gewässern und der Naturzone.",
         "Kommt später: Begegnungen auf Routen, in der Naturzone, auf der Insel der Rüstung und in der Krone-Tundra."));
     middle->addWidget(pages, 1);
@@ -415,6 +418,8 @@ void SwShRandomizerWindow::checkPaths() {
     }
 
     showMessages();
+    fillStarterCombos();
+    refreshStartersPage();
     updateStatus();
     saveSettings();
 }
@@ -444,22 +449,238 @@ void SwShRandomizerWindow::showMessages() {
     messageArea->setVisible(messageBox->count() > 0);
 }
 
+QStringList SwShRandomizerWindow::activeAreas() const {
+    QStringList areas;
+    if (trainerSettings.enabled) areas << "Trainer";
+    if (encounterSettings.starterMode != 0) areas << "Starter";
+    if (encounterSettings.gifts) areas << "Geschenke";
+    if (encounterSettings.statics || encounterSettings.overworld) areas << "Begegnungen";
+    if (encounterSettings.trades) areas << "Tausch";
+    return areas;
+}
+
 void SwShRandomizerWindow::updateStatus() {
-    const bool trainers = trainerSettings.enabled;
+    const QStringList areas = activeAreas();
     if (files) {
         QString game = check.version == swsh::Version::Unknown ? QString("Schwert/Schild")
                                                                : swsh::versionName(check.version);
-        activeInfo->setText(trainers ? "Aktiv: Trainer" : "Noch nichts ausgewählt");
+        activeInfo->setText(areas.isEmpty() ? QString("Noch nichts ausgewählt") : "Aktiv: " + areas.join(", "));
         QString seed = seedEdit->text().trimmed();
         detailInfo->setText(game + "  ·  Seed: " + (seed.isEmpty() ? QString("zufällig") : seed));
-        startButton->setEnabled(trainers);
-        startButton->setToolTip(trainers ? QString() : QString("Schalte zuerst auf der Seite „Trainer“ die Randomisierung ein."));
+        startButton->setEnabled(!areas.isEmpty());
+        startButton->setToolTip(areas.isEmpty() ? QString("Wähle zuerst aus, was randomisiert werden soll (Trainer, Starter …).")
+                                                : QString());
     } else {
         activeInfo->setText("Spieldateien fehlen");
         detailInfo->setText("Gib auf der Start-Seite den RomFS- und ExeFS-Ordner deines Dumps an.");
         startButton->setEnabled(false);
         startButton->setToolTip("Zuerst die Spieldateien auf der Start-Seite angeben.");
     }
+}
+
+void SwShRandomizerWindow::refreshAllPages() {
+    refreshTrainerPage();
+    refreshStartersPage();
+    updateStatus();
+}
+
+// ---------------------------------------------------- Starter & Geschenke
+
+QWidget* SwShRandomizerWindow::buildStartersPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    // --- Starter ---
+    auto* starterCard = new Card("Starter", QString(), content);
+    {
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("Starter-Pokémon", starterCard));
+        row->addWidget(new InfoButton("Original: Chimpep, Hopplo und Memmeon.\n"
+                                      "Zufällig: drei zufällige Pokémon.\n"
+                                      "Wunsch: du legst die drei Starter selbst fest.\n"
+                                      "Auf dem Tisch bei Delion stehen danach die neuen Starter.", starterCard));
+        row->addStretch();
+        starterMode = new SegmentedControl({"Original", "Zufällig", "Wunsch"}, starterCard);
+        row->addWidget(starterMode);
+        starterCard->body()->addLayout(row);
+        connect(starterMode, &SegmentedControl::changed, this, [this](int mode) {
+            encounterSettings.starterMode = mode;
+            starterRandomBox->setVisible(mode == 1);
+            starterWishBox->setVisible(mode == 2);
+            updateStatus();
+        });
+    }
+
+    starterRandomBox = new QWidget(starterCard);
+    starterRandomBox->setObjectName("subEditor");
+    starterRandomBox->setAttribute(Qt::WA_StyledBackground, true);
+    {
+        auto* box = new QVBoxLayout(starterRandomBox);
+        box->setContentsMargins(14, 12, 14, 12);
+        box->setSpacing(8);
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("Typen", starterRandomBox));
+        row->addWidget(new InfoButton("Beliebig: keine Regel.\n"
+                                      "Verschieden: die drei Starter teilen sich keinen Typ.\n"
+                                      "Pflanze/Feuer/Wasser: wie im Original je ein Pflanzen-, Feuer- und Wasser-Pokémon.",
+                                      starterRandomBox));
+        row->addStretch();
+        starterTypes = new SegmentedControl({"Beliebig", "Verschieden", "Pflanze/Feuer/Wasser"}, starterRandomBox);
+        row->addWidget(starterTypes);
+        box->addLayout(row);
+        connect(starterTypes, &SegmentedControl::changed, this, [this](int v) { encounterSettings.starterTypes = v; });
+        starterStages = new QCheckBox("Nur Pokémon mit zwei Entwicklungen", starterRandomBox);
+        box->addLayout(rowWithInfo(starterStages,
+            "Wie echte Starter: Basis-Pokémon, die sich zweimal entwickeln (z. B. Glumanda → Glutexo → Glurak)."));
+        connect(starterStages, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.starterThreeStages = on; });
+        starterStrength = new QCheckBox("Ähnlich stark wie die Original-Starter", starterRandomBox);
+        box->addLayout(rowWithInfo(starterStrength,
+            "Optional: Die neuen Starter haben ungefähr dieselbe Basiswerte-Summe wie Chimpep, Hopplo und Memmeon. "
+            "Ohne diese Option kann jedes passende Pokémon Starter werden."));
+        connect(starterStrength, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.starterSimilarStrength = on; });
+    }
+    starterCard->body()->addWidget(starterRandomBox);
+
+    starterWishBox = new QWidget(starterCard);
+    starterWishBox->setObjectName("subEditor");
+    starterWishBox->setAttribute(Qt::WA_StyledBackground, true);
+    {
+        auto* box = new QVBoxLayout(starterWishBox);
+        box->setContentsMargins(14, 12, 14, 12);
+        box->setSpacing(8);
+        const QStringList labels = {"Statt Chimpep", "Statt Hopplo", "Statt Memmeon"};
+        for (int i = 0; i < 3; i++) {
+            auto* row = new QHBoxLayout();
+            auto* label = new QLabel(labels[i], starterWishBox);
+            label->setFixedWidth(120);
+            row->addWidget(label);
+            wishCombos[i] = new QComboBox(starterWishBox);
+            wishCombos[i]->setEditable(true);
+            wishCombos[i]->setInsertPolicy(QComboBox::NoInsert);
+            wishCombos[i]->setMinimumWidth(280);
+            wishCombos[i]->lineEdit()->setPlaceholderText("Pokémon suchen …");
+            row->addWidget(wishCombos[i]);
+            row->addStretch();
+            box->addLayout(row);
+            connect(wishCombos[i], QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i](int index) {
+                const int code = index >= 0 ? wishCombos[i]->itemData(index).toInt() : 0;
+                encounterSettings.wished[i] = {code / 100, code % 100};
+            });
+        }
+        box->addWidget(mutedLabel("Leer gelassene Felder behalten den Original-Starter. Tippe einen Namen ein, um zu suchen.",
+                                  starterWishBox));
+    }
+    starterCard->body()->addWidget(starterWishBox);
+    layout->addWidget(starterCard);
+
+    // --- Geschenke ---
+    auto* giftCard = new Card("Geschenkte Pokémon", QString(), content);
+    giftsBox = new QCheckBox("Geschenkte Pokémon randomisieren", giftCard);
+    giftCard->body()->addLayout(rowWithInfo(giftsBox,
+        "Typ:Null, Toxel, die Fossil-Pokémon, Porygon, Cosmog, Venicro, die Alola-Pokémon aus der Krone-Tundra und mehr. "
+        "Pokémon, die gigadynamaximieren können (z. B. Delions Glumanda), werden durch ein anderes Pokémon mit "
+        "Gigadynamax-Form ersetzt. Dakuma sowie Polaross und Phantoross bleiben, weil die Geschichte sie braucht."));
+    connect(giftsBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.gifts = on; updateStatus(); });
+    layout->addWidget(giftCard);
+
+    // --- Begegnungen ---
+    auto* staticCard = new Card("Statische Begegnungen", QString(), content);
+    staticsBox = new QCheckBox("Legendäre und Story-Begegnungen", staticCard);
+    staticCard->body()->addLayout(rowWithInfo(staticsBox,
+        "Regis, Galar-Vögel, Legendäre in Dynamax-Abenteuern, Dynamax-Kämpfe in der Geschichte und mehr. Legendäre "
+        "werden wieder zu Legendären. Zacian, Zamazenta, Endynalos, Coronospa mit seinen Rössern und Dakuma bleiben, "
+        "damit die Geschichte funktioniert."));
+    connect(staticsBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.statics = on; updateStatus(); });
+    overworldBox = new QCheckBox("Feste Pokémon in der Spielwelt", staticCard);
+    staticCard->body()->addLayout(rowWithInfo(overworldBox,
+        "Die starken Pokémon, die an festen Stellen in der Naturzone, auf der Insel der Rüstung und in der Krone-Tundra "
+        "stehen (rund 600 Stück)."));
+    connect(overworldBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.overworld = on; updateStatus(); });
+    layout->addWidget(staticCard);
+
+    // --- Tausch ---
+    auto* tradeCard = new Card("Tausch", QString(), content);
+    tradesBox = new QCheckBox("Tauschpartner geben zufällige Pokémon", tradeCard);
+    tradeCard->body()->addLayout(rowWithInfo(tradesBox,
+        "Was du bei Tauschgeschäften bekommst, wird zufällig. Was du abgeben musst, bleibt gleich. Im Dialog nennt der "
+        "Tauschpartner weiterhin sein ursprüngliches Pokémon."));
+    connect(tradesBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.trades = on; updateStatus(); });
+    layout->addWidget(tradeCard);
+
+    // --- Gemeinsame Regeln ---
+    auto* rulesCard = new Card("Regeln für Geschenke, Begegnungen und Tausch", QString(), content);
+    strengthBox = new QCheckBox("Ähnlich starke Pokémon", rulesCard);
+    rulesCard->body()->addLayout(rowWithInfo(strengthBox,
+        "Optional, standardmäßig aus: Das neue Pokémon hat ungefähr dieselbe Basiswerte-Summe wie das alte. "
+        "So wird aus einem frühen Geschenk kein Drachenpokémon mit 600 Basiswerten. Gilt nicht für die Starter, "
+        "die haben eine eigene Option."));
+    connect(strengthBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.similarStrength = on; });
+    legendBox = new QCheckBox("Legendäre Pokémon erlauben", rulesCard);
+    rulesCard->body()->addLayout(rowWithInfo(legendBox,
+        "Legendäre, Mysteriöse und Ultrabestien dürfen auch dort auftauchen, wo vorher keine waren – auch als "
+        "zufällige Starter."));
+    connect(legendBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.legendaries = on; });
+    layout->addWidget(rulesCard);
+    layout->addStretch();
+
+    refreshStartersPage();
+    return wrapPage("Starter & Geschenke", "Starter, geschenkte Pokémon, statische Begegnungen und Tausch.", content);
+}
+
+void SwShRandomizerWindow::fillStarterCombos() {
+    if (!files || wishCombos[0] == nullptr) {
+        return;
+    }
+    swsh::GameTexts texts;
+    texts.load(QDir::fromNativeSeparators(romfsEdit->text().trimmed()));
+    const QList<swsh::StarterChoice> all = swsh::availablePokemon(*files);
+    for (int i = 0; i < 3; i++) {
+        QSignalBlocker block(wishCombos[i]);
+        wishCombos[i]->clear();
+        wishCombos[i]->addItem("– Original –", 0);
+        for (const swsh::StarterChoice& c : all) {
+            wishCombos[i]->addItem(QString("%1  ·  #%2").arg(texts.pokemonName(c.species, c.form)).arg(c.species, 3, 10, QChar('0')),
+                                   c.species * 100 + c.form);
+        }
+        auto* completer = new QCompleter(wishCombos[i]->model(), wishCombos[i]);
+        completer->setCaseSensitivity(Qt::CaseInsensitive);
+        completer->setFilterMode(Qt::MatchContains);
+        completer->setCompletionMode(QCompleter::PopupCompletion);
+        wishCombos[i]->setCompleter(completer);
+    }
+    refreshStartersPage();
+}
+
+void SwShRandomizerWindow::refreshStartersPage() {
+    if (starterMode == nullptr) {
+        return;
+    }
+    std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+    for (QWidget* w : std::initializer_list<QWidget*>{starterMode, starterTypes, starterStages, starterStrength, giftsBox, staticsBox,
+                                                     overworldBox, tradesBox, strengthBox, legendBox,
+                                                     wishCombos[0], wishCombos[1], wishCombos[2]}) {
+        blockers.push_back(std::make_unique<QSignalBlocker>(w));
+    }
+    starterMode->setCurrent(encounterSettings.starterMode);
+    starterTypes->setCurrent(encounterSettings.starterTypes);
+    starterStages->setChecked(encounterSettings.starterThreeStages);
+    starterStrength->setChecked(encounterSettings.starterSimilarStrength);
+    giftsBox->setChecked(encounterSettings.gifts);
+    staticsBox->setChecked(encounterSettings.statics);
+    overworldBox->setChecked(encounterSettings.overworld);
+    tradesBox->setChecked(encounterSettings.trades);
+    strengthBox->setChecked(encounterSettings.similarStrength);
+    legendBox->setChecked(encounterSettings.legendaries);
+    for (int i = 0; i < 3; i++) {
+        const int code = encounterSettings.wished[i].species * 100 + encounterSettings.wished[i].form;
+        const int index = wishCombos[i]->findData(code);
+        wishCombos[i]->setCurrentIndex(index >= 0 ? index : 0);
+        wishCombos[i]->setEnabled(files != nullptr);
+    }
+    starterRandomBox->setVisible(encounterSettings.starterMode == 1);
+    starterWishBox->setVisible(encounterSettings.starterMode == 2);
 }
 
 void SwShRandomizerWindow::showPage(int index) {
@@ -617,18 +838,26 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
     swsh::GameFiles work = *files; // Original bleibt fuer weitere Durchlaeufe unveraendert
     swsh::TrainerRandomizerResult result = swsh::randomizeTrainers(work, trainerSettings, seed);
 
+    const QString romfs = QDir::fromNativeSeparators(romfsEdit->text().trimmed());
+    swsh::EncounterResult encounters;
+    QString encounterError;
+    if (!swsh::randomizeEncounters(romfs, *files, encounterSettings, seed, encounters, &encounterError)) {
+        if (error) *error = encounterError;
+        return false;
+    }
+
     QDir(outputFolder).removeRecursively();
     const QString romfsOut = outputFolder + "/romfs";
-    if (!work.trainers.save(romfsOut, result.changedIndexes)) {
-        if (error) *error = "Die Trainer-Dateien konnten nicht geschrieben werden:\n" + romfsOut;
+    if (!work.trainers.save(romfsOut, result.changedIndexes) || !swsh::writeEncounters(romfsOut, encounters)) {
+        if (error) *error = "Die Dateien konnten nicht geschrieben werden:\n" + romfsOut;
         return false;
     }
 
     if (spoilerLog->isChecked()) {
         swsh::GameTexts texts;
-        texts.load(QDir::fromNativeSeparators(romfsEdit->text().trimmed()));
-        swsh::writeTrainerSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, seedText,
-                                  check.version);
+        texts.load(romfs);
+        swsh::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings,
+                           swsh::encounterSpoiler(encounters, *files, texts), seedText, check.version);
     }
 
     QFile info(outputFolder + "/Info.txt");
@@ -638,8 +867,10 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         out << "Erstellt: " << QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm") << "\n";
         out << "Seed: " << seedText << "\n";
         out << "Spiel: " << swsh::versionName(check.version) << "\n";
-        out << "Geänderte Trainer: " << result.randomized << "\n\n";
-        out << "Einstellungen:\n" << QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson();
+        out << "Geänderte Trainer: " << result.randomized << "\n";
+        out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << encounters.changes.size() << "\n\n";
+        out << "Trainer-Einstellungen:\n" << QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson() << "\n";
+        out << "Starter & Geschenke:\n" << QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson();
     }
     lastSeed = seedText;
     return true;
@@ -688,6 +919,7 @@ void SwShRandomizerWindow::saveSettings() const {
     settings.setValue("Seed", seedEdit->text());
     settings.setValue("SpoilerLog", spoilerLog->isChecked());
     settings.setValue("Trainer", QString::fromUtf8(QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson(QJsonDocument::Compact)));
+    settings.setValue("Encounters", QString::fromUtf8(QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson(QJsonDocument::Compact)));
 }
 
 void SwShRandomizerWindow::loadSettings() {
@@ -701,6 +933,11 @@ void SwShRandomizerWindow::loadSettings() {
             ownInitialized[g] = trainerSettings.modes[g] == swsh::OwnSettings;
         }
         refreshTrainerPage();
+    }
+    const QJsonDocument encounterJson = QJsonDocument::fromJson(settings.value("Encounters").toString().toUtf8());
+    if (encounterJson.isObject()) {
+        swsh::encounterSettingsFromJson(encounterJson.object(), encounterSettings);
+        refreshStartersPage();
     }
     const QString romfs = settings.value("RomFS").toString();
     const QString exefs = settings.value("ExeFS").toString();

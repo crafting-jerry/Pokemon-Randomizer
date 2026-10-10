@@ -46,6 +46,10 @@ const QString Evolutions = "bin/pml/evolution";
 const QString Moves = "bin/pml/waza";
 const QString TrainerData = "bin/trainer/trainer_data";
 const QString TrainerPoke = "bin/trainer/trainer_poke";
+const QString Gifts = "bin/script_event_data/add_poke.bin";
+const QString Statics = "bin/script_event_data/event_encount_data.bin";
+const QString Trades = "bin/script_event_data/field_trade.bin";
+const QString Placement = "bin/archive/field/resident/placement.gfpak";
 }
 
 QByteArray readFile(const QString& path, bool* ok = nullptr);
@@ -55,6 +59,73 @@ QByteArray readFile(const QString& path, bool* ok = nullptr);
 QStringList readMessage(const QString& romfs, const QString& name);
 QStringList decodeMessage(const QByteArray& data);
 bool writeFile(const QString& path, const QByteArray& data);
+
+// -------------------------------------------------- FlatBuffer-Archive
+// Archive der Form { Table:[Eintrag] } mit Eintraegen, die nur Zahlen enthalten
+// (Geschenke, statische Begegnungen, Tausch). Felder werden ueber ihren Index
+// angesprochen; fehlende Felder sind 0. Beim Schreiben entsteht ein neuer,
+// gueltiger FlatBuffer mit allen Feldern.
+
+struct FlatRecord {
+    QVector<qint64> values;
+    qint64 get(int field) const { return field < values.size() ? values[field] : 0; }
+    void set(int field, qint64 value) {
+        if (field >= values.size()) values.resize(field + 1);
+        values[field] = value;
+    }
+};
+
+QList<FlatRecord> readFlatArchive(const QByteArray& data, const QVector<int>& fieldSizes, bool* ok = nullptr);
+QByteArray writeFlatArchive(const QList<FlatRecord>& records, const QVector<int>& fieldSizes);
+
+// Feldnummern laut Schema (pkNX dient nur als Nachschlagewerk)
+namespace gift {
+enum Field { IsEgg, Form, DynamaxLevel, Ball, Field04, Hash1, CanGigantamax, HeldItem, Level, Species, Field0A,
+             MemoryCode, MemoryData, MemoryFeel, MemoryLevel, OtName, OtGender, ShinyLock, Nature, Gender,
+             IvSpe, IvAtk, IvDef, IvHp, IvSpa, IvSpd, Ability, SpecialMove };
+extern const QVector<int> kSizes;
+}
+namespace encounter {
+enum Field { BackgroundFar, BackgroundNear, EvSpe, EvAtk, EvDef, EvHp, EvSpa, EvSpd, Form, DynamaxLevel, Field0A,
+             EncounterId, Field0C, CanGigantamax, HeldItem, Level, Scenario, Species, ShinyLock, Nature, Gender,
+             IvSpe, IvAtk, IvDef, IvHp, IvSpa, IvSpd, Ability, Move0, Move1, Move2, Move3 };
+extern const QVector<int> kSizes;
+}
+namespace trade {
+enum Field { Form, DynamaxLevel, Ball, Field03, Hash0, CanGigantamax, HeldItem, Level, Species, Hash1, TrainerId,
+             Memory, TextVar, Feeling, Intensity, Hash2, OtGender, RequiredForm, RequiredSpecies, RequiredNature,
+             UnknownRequirement, ShinyLock, Nature, Gender, IvSpe, IvAtk, IvDef, IvHp, IvSpa, IvSpd, AbilityNumber,
+             Relearn1, Relearn2, Relearn3, Relearn4 };
+extern const QVector<int> kSizes;
+}
+
+// ---------------------------------------------------------------- GFPAK
+// Archiv-Format der Feld-Daten (z. B. placement.gfpak). Dateien sind mit LZ4
+// komprimiert; geaenderte Dateien werden als gueltiger LZ4-Block ohne
+// Kompression gespeichert, alle anderen bleiben unveraendert.
+
+class GfPak {
+public:
+    bool load(const QByteArray& data);
+    int indexOf(const QString& fileName) const; // -1 = nicht gefunden
+    QByteArray file(int index) const;
+    void setFile(int index, const QByteArray& data);
+    QByteArray save() const;
+
+private:
+    struct Entry {
+        quint16 level = 9;
+        quint8 type = 0;
+        QByteArray stored;   // so wie im Archiv (komprimiert)
+        int rawSize = 0;
+    };
+    QByteArray header;       // alles vor der Dateitabelle
+    QList<Entry> entries;
+    QList<QPair<quint64,int>> nameHashes; // (FNV-1a des Dateinamens, Index)
+};
+
+QByteArray lz4Decompress(const QByteArray& src, int rawSize);
+QByteArray lz4StoreUncompressed(const QByteArray& raw);
 
 // ----------------------------------------------------------- Pokemon-Daten
 

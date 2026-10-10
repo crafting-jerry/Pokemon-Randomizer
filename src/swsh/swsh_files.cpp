@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QtEndian>
+#include <algorithm>
 
 namespace swsh {
 
@@ -215,6 +216,299 @@ DumpCheck checkDump(const QString& romfs, const QString& exefs) {
 
     result.ok = result.errors.isEmpty();
     return result;
+}
+
+// -------------------------------------------------- FlatBuffer-Archive
+
+namespace gift {
+const QVector<int> kSizes = {4, 1, 1, 4, 1, 8, 1, 4, 1, 4, 1, 1, 2, 1, 1, 8, 4, 4, 4, 1, 1, 1, 1, 1, 1, 1, 4, 4};
+}
+namespace encounter {
+const QVector<int> kSizes = {8, 8, 1, 1, 1, 1, 1, 1, 1, 1, 4, 8, 1, 1, 4, 1, 4, 4, 4, 4, 1, 1, 1, 1, 1, 1, 1, 4, 4, 4, 4, 4};
+}
+namespace trade {
+const QVector<int> kSizes = {1, 1, 4, 4, 8, 1, 4, 1, 4, 8, 4, 1, 2, 1, 1, 8, 1, 1, 4, 4, 1, 4, 4, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2};
+}
+
+namespace {
+
+qint64 readScalar(const QByteArray& data, int pos, int size) {
+    if (pos < 0 || pos + size > data.size()) {
+        return 0;
+    }
+    const uchar* p = reinterpret_cast<const uchar*>(data.constData() + pos);
+    switch (size) {
+    case 1: return static_cast<qint8>(p[0]);
+    case 2: return qFromLittleEndian<qint16>(p);
+    case 4: return qFromLittleEndian<qint32>(p);
+    default: return qFromLittleEndian<qint64>(p);
+    }
+}
+
+void appendScalar(QByteArray& data, qint64 value, int size) {
+    for (int i = 0; i < size; i++) {
+        data.append(static_cast<char>((static_cast<quint64>(value) >> (8 * i)) & 0xFF));
+    }
+}
+
+void putU32(QByteArray& data, int pos, quint32 value) {
+    qToLittleEndian<quint32>(value, reinterpret_cast<uchar*>(data.data() + pos));
+}
+
+void alignTo(QByteArray& data, int alignment, int remainder = 0) {
+    while (data.size() % alignment != remainder) {
+        data.append('\0');
+    }
+}
+
+} // namespace
+
+QList<FlatRecord> readFlatArchive(const QByteArray& data, const QVector<int>& fieldSizes, bool* ok) {
+    QList<FlatRecord> records;
+    if (ok) *ok = false;
+    if (data.size() < 8) {
+        return records;
+    }
+    auto vtableOf = [&](int table) { return table - static_cast<qint32>(readU32(data, table)); };
+    auto fieldOffset = [&](int table, int field) -> int {
+        const int vt = vtableOf(table);
+        if (vt < 0 || vt + 4 > data.size()) return 0;
+        const int vtSize = readU16(data, vt);
+        if (4 + 2 * field + 2 > vtSize) return 0;
+        return readU16(data, vt + 4 + 2 * field);
+    };
+
+    const int root = static_cast<int>(readU32(data, 0));
+    const int vecField = fieldOffset(root, 0);
+    if (vecField == 0) {
+        return records;
+    }
+    const int vecPos = root + vecField + static_cast<int>(readU32(data, root + vecField));
+    if (vecPos < 0 || vecPos + 4 > data.size()) {
+        return records;
+    }
+    const int count = static_cast<int>(readU32(data, vecPos));
+    for (int i = 0; i < count; i++) {
+        const int slot = vecPos + 4 + 4 * i;
+        if (slot + 4 > data.size()) {
+            return QList<FlatRecord>();
+        }
+        const int table = slot + static_cast<int>(readU32(data, slot));
+        FlatRecord r;
+        r.values.resize(fieldSizes.size());
+        for (int f = 0; f < fieldSizes.size(); f++) {
+            const int off = fieldOffset(table, f);
+            r.values[f] = off ? readScalar(data, table + off, fieldSizes[f]) : 0;
+        }
+        records.append(r);
+    }
+    if (ok) *ok = true;
+    return records;
+}
+
+QByteArray writeFlatArchive(const QList<FlatRecord>& records, const QVector<int>& fieldSizes) {
+    QByteArray buf(4, '\0'); // Root-Offset, wird am Ende gesetzt
+
+    // Root: vtable + Tabelle mit einem Feld (Offset auf den Vektor)
+    const int rootVt = buf.size();
+    appendScalar(buf, 6, 2);   // vtable-Groesse
+    appendScalar(buf, 8, 2);   // Tabellengroesse
+    appendScalar(buf, 4, 2);   // Feld 0 bei +4
+    alignTo(buf, 4);
+    const int rootTable = buf.size();
+    appendScalar(buf, rootTable - rootVt, 4);
+    const int vecRefPos = buf.size();
+    appendScalar(buf, 0, 4);
+    putU32(buf, 0, static_cast<quint32>(rootTable));
+
+    // Vektor mit Platzhaltern
+    const int vecPos = buf.size();
+    putU32(buf, vecRefPos, static_cast<quint32>(vecPos - vecRefPos));
+    appendScalar(buf, records.size(), 4);
+    const int slotBase = buf.size();
+    buf.append(QByteArray(4 * records.size(), '\0'));
+
+    // Felder nach Groesse absteigend anordnen (Ausrichtung ohne Luecken)
+    QVector<int> order(fieldSizes.size());
+    for (int i = 0; i < order.size(); i++) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return fieldSizes[a] > fieldSizes[b]; });
+    QVector<int> offsets(fieldSizes.size());
+    int tableSize = 4;
+    bool has8 = false;
+    for (int f : order) {
+        offsets[f] = tableSize;
+        tableSize += fieldSizes[f];
+        has8 |= fieldSizes[f] == 8;
+    }
+
+    for (int i = 0; i < records.size(); i++) {
+        alignTo(buf, 2);
+        const int vt = buf.size();
+        appendScalar(buf, 4 + 2 * fieldSizes.size(), 2);
+        appendScalar(buf, tableSize, 2);
+        for (int f = 0; f < fieldSizes.size(); f++) {
+            appendScalar(buf, offsets[f], 2);
+        }
+        if (has8) alignTo(buf, 8, 4); else alignTo(buf, 4);
+        const int table = buf.size();
+        appendScalar(buf, table - vt, 4);
+        for (int f : order) {
+            appendScalar(buf, records[i].get(f), fieldSizes[f]);
+        }
+        const int slot = slotBase + 4 * i;
+        putU32(buf, slot, static_cast<quint32>(table - slot));
+    }
+    alignTo(buf, 4);
+    return buf;
+}
+
+// ---------------------------------------------------------------- GFPAK
+
+namespace {
+quint64 fnv1a64(const QByteArray& text) {
+    quint64 h = 0xCBF29CE484222645ULL;
+    for (char c : text) {
+        h ^= static_cast<quint8>(c);
+        h *= 0x100000001B3ULL;
+    }
+    return h;
+}
+} // namespace
+
+QByteArray lz4Decompress(const QByteArray& src, int rawSize) {
+    QByteArray out;
+    out.reserve(rawSize);
+    const uchar* s = reinterpret_cast<const uchar*>(src.constData());
+    const int n = src.size();
+    int i = 0;
+    while (i < n) {
+        const int token = s[i++];
+        int literal = token >> 4;
+        if (literal == 15) {
+            int b = 255;
+            while (b == 255 && i < n) { b = s[i++]; literal += b; }
+        }
+        if (i + literal > n) return QByteArray();
+        out.append(reinterpret_cast<const char*>(s + i), literal);
+        i += literal;
+        if (i >= n) break;
+        if (i + 2 > n) return QByteArray();
+        const int offset = s[i] | (s[i + 1] << 8);
+        i += 2;
+        int match = token & 15;
+        if (match == 15) {
+            int b = 255;
+            while (b == 255 && i < n) { b = s[i++]; match += b; }
+        }
+        match += 4;
+        if (offset <= 0 || offset > out.size()) return QByteArray();
+        const int start = out.size() - offset;
+        for (int k = 0; k < match; k++) {
+            out.append(out[start + k]);
+        }
+    }
+    return out.size() == rawSize ? out : QByteArray();
+}
+
+QByteArray lz4StoreUncompressed(const QByteArray& raw) {
+    // Ein einziger Block, der nur aus Literalen besteht (gueltiges LZ4)
+    QByteArray out;
+    int length = raw.size();
+    out.append(static_cast<char>(length >= 15 ? 0xF0 : (length << 4)));
+    if (length >= 15) {
+        length -= 15;
+        while (length >= 255) { out.append(static_cast<char>(255)); length -= 255; }
+        out.append(static_cast<char>(length));
+    }
+    out.append(raw);
+    return out;
+}
+
+bool GfPak::load(const QByteArray& data) {
+    entries.clear();
+    nameHashes.clear();
+    if (data.size() < 0x28 || !data.startsWith("GFLXPACK")) {
+        return false;
+    }
+    const int fileCount = static_cast<qint32>(readU32(data, 0x10));
+    const int folderCount = static_cast<qint32>(readU32(data, 0x14));
+    const qint64 ptrFiles = qFromLittleEndian<qint64>(reinterpret_cast<const uchar*>(data.constData() + 0x18));
+    if (fileCount <= 0 || ptrFiles <= 0 || ptrFiles + 0x18LL * fileCount > data.size()) {
+        return false;
+    }
+    for (int f = 0; f < folderCount; f++) {
+        const qint64 folder = qFromLittleEndian<qint64>(reinterpret_cast<const uchar*>(data.constData() + 0x28 + 8 * f));
+        const int count = static_cast<qint32>(readU32(data, static_cast<int>(folder) + 8));
+        for (int k = 0; k < count; k++) {
+            const int pos = static_cast<int>(folder) + 16 + 16 * k;
+            nameHashes.append({qFromLittleEndian<quint64>(reinterpret_cast<const uchar*>(data.constData() + pos)),
+                               static_cast<qint32>(readU32(data, pos + 8))});
+        }
+    }
+    header = data.left(static_cast<int>(ptrFiles));
+    for (int i = 0; i < fileCount; i++) {
+        const int pos = static_cast<int>(ptrFiles) + 0x18 * i;
+        Entry e;
+        e.level = readU16(data, pos);
+        e.type = static_cast<quint8>(data[pos + 2]);
+        e.rawSize = static_cast<qint32>(readU32(data, pos + 4));
+        const int size = static_cast<qint32>(readU32(data, pos + 8));
+        const int offset = static_cast<qint32>(readU32(data, pos + 0x10));
+        if (offset < 0 || offset + size > data.size()) {
+            return false;
+        }
+        e.stored = data.mid(offset, size);
+        entries.append(e);
+    }
+    return true;
+}
+
+int GfPak::indexOf(const QString& fileName) const {
+    const quint64 hash = fnv1a64(fileName.toUtf8());
+    for (const auto& h : nameHashes) {
+        if (h.first == hash) return h.second;
+    }
+    return -1;
+}
+
+QByteArray GfPak::file(int index) const {
+    if (index < 0 || index >= entries.size()) return QByteArray();
+    const Entry& e = entries[index];
+    switch (e.type) {
+    case 0: return e.stored;
+    case 2: return lz4Decompress(e.stored, e.rawSize);
+    default: return QByteArray(); // andere Kompressionen kommen in Schwert/Schild nicht vor
+    }
+}
+
+void GfPak::setFile(int index, const QByteArray& data) {
+    if (index < 0 || index >= entries.size()) return;
+    Entry& e = entries[index];
+    e.type = 2;
+    e.rawSize = data.size();
+    e.stored = lz4StoreUncompressed(data);
+}
+
+QByteArray GfPak::save() const {
+    QByteArray out = header;
+    const int tablePos = out.size();
+    out.append(QByteArray(0x18 * entries.size(), '\0'));
+    for (int i = 0; i < entries.size(); i++) {
+        alignTo(out, 16);
+        const int offset = out.size();
+        out.append(entries[i].stored);
+        const int pos = tablePos + 0x18 * i;
+        qToLittleEndian<quint16>(entries[i].level, reinterpret_cast<uchar*>(out.data() + pos));
+        out[pos + 2] = static_cast<char>(entries[i].type);
+        out[pos + 3] = 0;
+        putU32(out, pos + 4, static_cast<quint32>(entries[i].rawSize));
+        putU32(out, pos + 8, static_cast<quint32>(entries[i].stored.size()));
+        putU32(out, pos + 0x0C, 0xCC);
+        putU32(out, pos + 0x10, static_cast<quint32>(offset));
+        putU32(out, pos + 0x14, 0);
+    }
+    alignTo(out, 16);
+    return out;
 }
 
 // ----------------------------------------------------------- Pokemon-Daten

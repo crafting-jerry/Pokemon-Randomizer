@@ -65,15 +65,22 @@ const QHash<int, int>& themeByClass() {
 // Kaempfe mit Partner: hoechstens 3 Pokemon pro Trainer
 const QSet<int> kMultiBattleTrainers = {156, 157, 158, 197, 198, 199, 225, 226, 227, 312, 313, 314, 223, 224};
 
+} // namespace
+
 // ----------------------------------------------------------- Pokemon-Regeln
 
 // Legendaere, Mysterioese und Ultrabestien bis Nr. 898
-const QSet<int> kLegendary = {
+const QSet<int>& legendarySet() {
+    static const QSet<int> kLegendary = {
     144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386,
     480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 638, 639, 640, 641, 642, 643,
     644, 645, 646, 647, 648, 649, 716, 717, 718, 719, 720, 721, 772, 773, 785, 786, 787, 788, 789, 790, 791,
     792, 793, 794, 795, 796, 797, 798, 799, 800, 801, 802, 803, 804, 805, 806, 807, 808, 809, 888, 889, 890,
     891, 892, 893, 894, 895, 896, 897, 898};
+    return kLegendary;
+}
+
+bool isLegendary(int species) { return legendarySet().contains(species); }
 
 // Formen, die nur im Kampf oder nur mit bestimmtem Item existieren
 bool isExcludedForm(int species, int form) {
@@ -116,6 +123,8 @@ bool canGigantamax(int species, int form) {
     return true;
 }
 
+namespace {
+
 // Items, die nur fuer bestimmte Arten gedacht sind
 const QSet<int> kSpeciesItems = {236, 259, 258, 256, 257, 274, 225, 226, 227, 1103, 1104, 135, 136, 112};
 
@@ -132,7 +141,7 @@ struct Pools {
 Pools buildPools(const GameFiles& files, bool legendaries) {
     Pools pools;
     for (int species = 1; species <= kMaxSpecies; species++) {
-        if (!legendaries && kLegendary.contains(species)) {
+        if (!legendaries && isLegendary(species)) {
             continue;
         }
         const int baseIndex = files.personal.indexOf(species, 0);
@@ -505,14 +514,15 @@ namespace {
 QString esc(const QString& text) { return text.toHtmlEscaped(); }
 } // namespace
 
-bool writeTrainerSpoiler(const QString& path, const GameFiles& files, const GameTexts& texts,
-                         const TrainerSettings& settings, const QString& seedText, Version version) {
+bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& texts,
+                  const TrainerSettings& settings, const QList<SpoilerSection>& extra,
+                  const QString& seedText, Version version) {
     QHash<int, QString> sectionHtml;
     QHash<int, int> sectionCount;
     int total = 0;
 
     for (const Trainer& trainer : files.trainers.all()) {
-        if (trainer.isPlaceholder() || trainer.team.isEmpty()) {
+        if (!settings.enabled || trainer.isPlaceholder() || trainer.team.isEmpty()) {
             continue;
         }
         const int group = trainerGroup(trainer);
@@ -609,13 +619,26 @@ details.section>summary .count{color:var(--muted);font-weight:400;font-size:14px
 .t10{background:#2980ef}.t11{background:#3fa129}.t12{background:#d4b000}.t13{background:#ef4179}.t14{background:#3dcef3}
 .t15{background:#5060e1}.t16{background:#624d4e}.t17{background:#ef70ef}
 #empty{color:var(--muted);text-align:center;padding:40px}
+.section-body>.team{margin-top:4px}
+table.enc{width:100%;border-collapse:collapse;font-size:14px}
+table.enc th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
+table.enc td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.enc td .type{margin-left:4px}
+table.enc .num{color:var(--muted);white-space:nowrap}.arrow{color:var(--muted)}
+.hint{color:var(--muted);font-size:12px}
 </style></head><body>
 <div class="top"><h1>Spoiler-Log · )" + esc(gameTitle) + "</h1>";
     html += "<div class=\"info\">Erstellt am " + QDateTime::currentDateTime().toString("dd.MM.yyyy 'um' HH:mm") +
-            " · " + QString::number(total) + " Trainer · Seed " + esc(seedText) + "</div>";
+            (settings.enabled ? " · " + QString::number(total) + " Trainer" : QString()) + " · Seed " + esc(seedText) + "</div>";
     html += R"(<div class="controls"><input id="search" type="search" placeholder="Suchen: Trainer, Pokémon, Attacke, Item …" autocomplete="off">
 <button class="chip" id="expand">Alle aufklappen</button><button class="chip" id="collapse">Alle zuklappen</button></div>
 <div class="controls" id="chips" style="margin-top:10px"></div></div><main>)";
+
+    for (const SpoilerSection& section : extra) {
+        html += "<details class=\"section\" data-cat=\"" + esc(section.title) + "\" open>";
+        html += "<summary>" + esc(section.title) + "<span class=\"count\">" + QString::number(section.count) +
+                " Einträge</span></summary><div class=\"section-body\">" + section.html + "</div></details>";
+    }
 
     for (int g = 0; g < GroupCount; g++) {
         if (!sectionHtml.contains(g)) continue;
@@ -640,7 +663,7 @@ details.section>summary .count{color:var(--muted);font-weight:400;font-size:14px
     var q=search.value.trim().toLowerCase();var terms=q?q.split(/\s+/):[];var any=false;
     sections.forEach(function(s){
       var catOk=activeCats.size===0||activeCats.has(s.dataset.cat);var visible=0;
-      s.querySelectorAll('.trainer').forEach(function(t){
+      s.querySelectorAll('[data-search]').forEach(function(t){
         var ok=catOk&&terms.every(function(w){return t.dataset.search.indexOf(w)!==-1;});
         t.classList.toggle('hidden',!ok);if(ok)visible++;
       });

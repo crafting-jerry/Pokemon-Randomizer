@@ -20,6 +20,8 @@
 
 #include "swsh_files.h"
 #include "swsh_trainers.h"
+#include "swsh_encounters.h"
+#include <QComboBox>
 
 class SwShTrainerEditor;
 namespace modernui { class SegmentedControl; }
@@ -36,6 +38,8 @@ public:
     // Randomisiert und schreibt romfs + Spoiler-Log nach outputFolder. Fehlertext in error.
     bool randomizeTo(const QString& outputFolder, QString* error);
     swsh::TrainerSettings& trainerSettingsRef() { return trainerSettings; }
+    swsh::EncounterSettings& encounterSettingsRef() { return encounterSettings; }
+    void refreshAllPages();
     void showPage(int index);
 
 signals:
@@ -73,6 +77,26 @@ private:
     SwShTrainerEditor* groupEditors[swsh::GroupCount] = {};
     QWidget* groupEditorBoxes[swsh::GroupCount] = {};
     modernui::SegmentedControl* groupSelectors[swsh::GroupCount] = {};
+
+    // Starter & Geschenke
+    swsh::EncounterSettings encounterSettings;
+    modernui::SegmentedControl* starterMode = nullptr;
+    modernui::SegmentedControl* starterTypes = nullptr;
+    QCheckBox* starterStages = nullptr;
+    QCheckBox* starterStrength = nullptr;
+    QWidget* starterRandomBox = nullptr;
+    QWidget* starterWishBox = nullptr;
+    QComboBox* wishCombos[3] = {};
+    QCheckBox* giftsBox = nullptr;
+    QCheckBox* staticsBox = nullptr;
+    QCheckBox* overworldBox = nullptr;
+    QCheckBox* tradesBox = nullptr;
+    QCheckBox* strengthBox = nullptr;
+    QCheckBox* legendBox = nullptr;
+    QWidget* buildStartersPage();
+    void refreshStartersPage();
+    void fillStarterCombos();
+    QStringList activeAreas() const;
 
     QString lastSeed;
     swsh::DumpCheck check;
