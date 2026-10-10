@@ -626,6 +626,9 @@ table.enc td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:
 table.enc td .type{margin-left:4px}
 table.enc .num{color:var(--muted);white-space:nowrap}.arrow{color:var(--muted)}
 .hint{color:var(--muted);font-size:12px}
+.wild{display:inline-flex;align-items:center;gap:5px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px 2px;font-size:13px;cursor:default}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+td.place{white-space:nowrap;font-weight:600}
 </style></head><body>
 <div class="top"><h1>Spoiler-Log · )" + esc(gameTitle) + "</h1>";
     html += "<div class=\"info\">Erstellt am " + QDateTime::currentDateTime().toString("dd.MM.yyyy 'um' HH:mm") +

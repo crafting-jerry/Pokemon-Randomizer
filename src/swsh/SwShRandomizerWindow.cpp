@@ -51,8 +51,7 @@ SwShRandomizerWindow::SwShRandomizerWindow(QWidget* parent) : QWidget(parent) {
     pages->addWidget(buildStartPage());
     pages->addWidget(buildTrainerPage());
     pages->addWidget(buildStartersPage());
-    pages->addWidget(buildComingSoonPage("Wilde Pokémon", "Pokémon in hohem Gras, Gewässern und der Naturzone.",
-        "Kommt später: Begegnungen auf Routen, in der Naturzone, auf der Insel der Rüstung und in der Krone-Tundra."));
+    pages->addWidget(buildWildPage());
     middle->addWidget(pages, 1);
 
     root->addLayout(middle, 1);
@@ -456,6 +455,7 @@ QStringList SwShRandomizerWindow::activeAreas() const {
     if (encounterSettings.gifts) areas << "Geschenke";
     if (encounterSettings.statics || encounterSettings.overworld) areas << "Begegnungen";
     if (encounterSettings.trades) areas << "Tausch";
+    if (wildSettings.enabled) areas << "Wilde Pokémon";
     return areas;
 }
 
@@ -481,7 +481,100 @@ void SwShRandomizerWindow::updateStatus() {
 void SwShRandomizerWindow::refreshAllPages() {
     refreshTrainerPage();
     refreshStartersPage();
+    refreshWildPage();
     updateStatus();
+}
+
+// ------------------------------------------------------------ Wilde Pokemon
+
+QWidget* SwShRandomizerWindow::buildWildPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(8);
+        wildSwitch = new QCheckBox("Wilde Pokémon randomisieren", content);
+        wildSwitch->setObjectName("masterSwitch");
+        row->addWidget(wildSwitch);
+        row->addWidget(new InfoButton("Pokémon im hohen Gras, beim Angeln und an Bäumen sowie die sichtbaren Pokémon in "
+                                      "der Spielwelt – auf allen Routen, in der Naturzone, auf der Insel der Rüstung und "
+                                      "in der Krone-Tundra. Gilt für jedes Wetter.", content));
+        row->addStretch();
+        layout->addLayout(row);
+        connect(wildSwitch, &QCheckBox::toggled, this, [this](bool on) {
+            wildSettings.enabled = on;
+            wildContent->setEnabled(on);
+            updateStatus();
+        });
+    }
+
+    wildContent = new QWidget(content);
+    auto* inner = new QVBoxLayout(wildContent);
+    inner->setContentsMargins(0, 0, 0, 0);
+    inner->setSpacing(12);
+    layout->addWidget(wildContent);
+
+    auto* card = new Card("Einstellungen", QString(), wildContent);
+    {
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("Austausch", card));
+        row->addWidget(new InfoButton(
+            "Pro Gebiet: In jedem Gebiet wird jedes Pokémon durch ein festes anderes ersetzt. Ein Gebiet hat also "
+            "weiterhin eine eigene, überschaubare Auswahl.\n"
+            "Global 1:1: Jedes Pokémon wird überall durch dasselbe andere ersetzt (z. B. jedes Raffel wird zu Evoli).\n"
+            "Jeder Platz: Jeder Eintrag wird einzeln ausgewürfelt – die größte Vielfalt.", card));
+        row->addStretch();
+        wildMode = new SegmentedControl({"Pro Gebiet", "Global 1:1", "Jeder Platz"}, card);
+        row->addWidget(wildMode);
+        card->body()->addLayout(row);
+        connect(wildMode, &SegmentedControl::changed, this, [this](int v) { wildSettings.mode = v; });
+    }
+    wildLevel = new QCheckBox("Level-passende Entwicklungen", card);
+    card->body()->addLayout(rowWithInfo(wildLevel,
+        "Pokémon tauchen erst auf, wenn sie auf diesem Level schon entwickelt sein könnten (z. B. kein Garados vor "
+        "Level 20). Pokémon ohne Entwicklung, wie Fossilien, sind immer erlaubt."));
+    connect(wildLevel, &QCheckBox::toggled, this, [this](bool on) { wildSettings.levelAppropriate = on; });
+    wildType = new QCheckBox("Gleicher Typ wie das Original", card);
+    card->body()->addLayout(rowWithInfo(wildType,
+        "Optional: Das neue Pokémon hat mindestens einen Typ mit dem alten gemeinsam – beim Angeln gibt es dann "
+        "weiterhin Wasser-Pokémon."));
+    connect(wildType, &QCheckBox::toggled, this, [this](bool on) { wildSettings.sameType = on; });
+    wildStrength = new QCheckBox("Ähnlich starke Pokémon", card);
+    card->body()->addLayout(rowWithInfo(wildStrength,
+        "Optional: Das neue Pokémon hat ungefähr dieselbe Basiswerte-Summe wie das alte."));
+    connect(wildStrength, &QCheckBox::toggled, this, [this](bool on) { wildSettings.similarStrength = on; });
+    wildLegends = new QCheckBox("Legendäre Pokémon erlauben", card);
+    card->body()->addLayout(rowWithInfo(wildLegends,
+        "Legendäre, Mysteriöse und Ultrabestien dürfen auch als wilde Pokémon auftauchen."));
+    connect(wildLegends, &QCheckBox::toggled, this, [this](bool on) { wildSettings.legendaries = on; });
+    inner->addWidget(card);
+
+    inner->addWidget(mutedLabel("Der Mod enthält die Tabellen für Schwert und für Schild. Versionsexklusive Pokémon "
+                                "werden dabei für jede Version getrennt ausgewürfelt.", wildContent));
+    layout->addStretch();
+
+    refreshWildPage();
+    return wrapPage("Wilde Pokémon", "Pokémon in hohem Gras, Gewässern, auf Bäumen und in der Naturzone.", content);
+}
+
+void SwShRandomizerWindow::refreshWildPage() {
+    if (wildSwitch == nullptr) {
+        return;
+    }
+    std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+    for (QWidget* w : std::initializer_list<QWidget*>{wildSwitch, wildMode, wildLevel, wildType, wildStrength, wildLegends}) {
+        blockers.push_back(std::make_unique<QSignalBlocker>(w));
+    }
+    wildSwitch->setChecked(wildSettings.enabled);
+    wildMode->setCurrent(wildSettings.mode);
+    wildLevel->setChecked(wildSettings.levelAppropriate);
+    wildType->setChecked(wildSettings.sameType);
+    wildStrength->setChecked(wildSettings.similarStrength);
+    wildLegends->setChecked(wildSettings.legendaries);
+    wildContent->setEnabled(wildSettings.enabled);
 }
 
 // ---------------------------------------------------- Starter & Geschenke
@@ -846,9 +939,16 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         return false;
     }
 
+    swsh::WildResult wild;
+    if (!swsh::randomizeWild(romfs, *files, wildSettings, seed, wild, &encounterError)) {
+        if (error) *error = encounterError;
+        return false;
+    }
+
     QDir(outputFolder).removeRecursively();
     const QString romfsOut = outputFolder + "/romfs";
-    if (!work.trainers.save(romfsOut, result.changedIndexes) || !swsh::writeEncounters(romfsOut, encounters)) {
+    if (!work.trainers.save(romfsOut, result.changedIndexes) || !swsh::writeEncounters(romfsOut, encounters) ||
+        !swsh::writeWild(romfsOut, wild)) {
         if (error) *error = "Die Dateien konnten nicht geschrieben werden:\n" + romfsOut;
         return false;
     }
@@ -856,8 +956,10 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
     if (spoilerLog->isChecked()) {
         swsh::GameTexts texts;
         texts.load(romfs);
-        swsh::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings,
-                           swsh::encounterSpoiler(encounters, *files, texts), seedText, check.version);
+        QList<swsh::SpoilerSection> sections = swsh::encounterSpoiler(encounters, *files, texts);
+        sections += swsh::wildSpoiler(wild, *files, texts, swsh::readMessage(romfs, "place_name_indirect"), check.version);
+        swsh::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, sections, seedText,
+                           check.version);
     }
 
     QFile info(outputFolder + "/Info.txt");
@@ -870,7 +972,8 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         out << "Geänderte Trainer: " << result.randomized << "\n";
         out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << encounters.changes.size() << "\n\n";
         out << "Trainer-Einstellungen:\n" << QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson() << "\n";
-        out << "Starter & Geschenke:\n" << QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson();
+        out << "Starter & Geschenke:\n" << QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson() << "\n";
+        out << "Wilde Pokémon:\n" << QJsonDocument(swsh::wildSettingsToJson(wildSettings)).toJson();
     }
     lastSeed = seedText;
     return true;
@@ -919,6 +1022,7 @@ void SwShRandomizerWindow::saveSettings() const {
     settings.setValue("Seed", seedEdit->text());
     settings.setValue("SpoilerLog", spoilerLog->isChecked());
     settings.setValue("Trainer", QString::fromUtf8(QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson(QJsonDocument::Compact)));
+    settings.setValue("Wild", QString::fromUtf8(QJsonDocument(swsh::wildSettingsToJson(wildSettings)).toJson(QJsonDocument::Compact)));
     settings.setValue("Encounters", QString::fromUtf8(QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson(QJsonDocument::Compact)));
 }
 
@@ -938,6 +1042,11 @@ void SwShRandomizerWindow::loadSettings() {
     if (encounterJson.isObject()) {
         swsh::encounterSettingsFromJson(encounterJson.object(), encounterSettings);
         refreshStartersPage();
+    }
+    const QJsonDocument wildJson = QJsonDocument::fromJson(settings.value("Wild").toString().toUtf8());
+    if (wildJson.isObject()) {
+        swsh::wildSettingsFromJson(wildJson.object(), wildSettings);
+        refreshWildPage();
     }
     const QString romfs = settings.value("RomFS").toString();
     const QString exefs = settings.value("ExeFS").toString();

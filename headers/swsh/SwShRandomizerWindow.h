@@ -21,6 +21,7 @@
 #include "swsh_files.h"
 #include "swsh_trainers.h"
 #include "swsh_encounters.h"
+#include "swsh_wild.h"
 #include <QComboBox>
 
 class SwShTrainerEditor;
@@ -39,6 +40,7 @@ public:
     bool randomizeTo(const QString& outputFolder, QString* error);
     swsh::TrainerSettings& trainerSettingsRef() { return trainerSettings; }
     swsh::EncounterSettings& encounterSettingsRef() { return encounterSettings; }
+    swsh::WildSettings& wildSettingsRef() { return wildSettings; }
     void refreshAllPages();
     void showPage(int index);
 
@@ -97,6 +99,18 @@ private:
     void refreshStartersPage();
     void fillStarterCombos();
     QStringList activeAreas() const;
+
+    // Wilde Pokemon
+    swsh::WildSettings wildSettings;
+    QCheckBox* wildSwitch = nullptr;
+    QWidget* wildContent = nullptr;
+    modernui::SegmentedControl* wildMode = nullptr;
+    QCheckBox* wildLevel = nullptr;
+    QCheckBox* wildType = nullptr;
+    QCheckBox* wildStrength = nullptr;
+    QCheckBox* wildLegends = nullptr;
+    QWidget* buildWildPage();
+    void refreshWildPage();
 
     QString lastSeed;
     swsh::DumpCheck check;
