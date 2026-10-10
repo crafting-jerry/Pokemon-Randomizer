@@ -22,6 +22,7 @@
 #include "swsh_trainers.h"
 #include "swsh_encounters.h"
 #include "swsh_wild.h"
+#include "swsh_extras.h"
 #include <QComboBox>
 
 class SwShTrainerEditor;
@@ -41,6 +42,9 @@ public:
     swsh::TrainerSettings& trainerSettingsRef() { return trainerSettings; }
     swsh::EncounterSettings& encounterSettingsRef() { return encounterSettings; }
     swsh::WildSettings& wildSettingsRef() { return wildSettings; }
+    swsh::RaidSettings& raidSettingsRef() { return raidSettings; }
+    swsh::ItemSettings& itemSettingsRef() { return itemSettings; }
+    swsh::PokemonDataSettings& dataSettingsRef() { return dataSettings; }
     void refreshAllPages();
     void showPage(int index);
 
@@ -111,6 +115,28 @@ private:
     QCheckBox* wildLegends = nullptr;
     QWidget* buildWildPage();
     void refreshWildPage();
+
+    // Dyna-Raids, Items, Pokemon-Daten
+    swsh::RaidSettings raidSettings;
+    swsh::ItemSettings itemSettings;
+    swsh::PokemonDataSettings dataSettings;
+    QCheckBox* raidSwitch = nullptr;
+    QWidget* raidContent = nullptr;
+    QCheckBox* raidLevel = nullptr;
+    QCheckBox* raidGmax = nullptr;
+    QCheckBox* raidType = nullptr;
+    QCheckBox* raidStrength = nullptr;
+    QCheckBox* raidLegends = nullptr;
+    modernui::SegmentedControl* itemMode = nullptr;
+    QCheckBox* itemField = nullptr;
+    QCheckBox* itemHidden = nullptr;
+    QCheckBox* itemShops = nullptr;
+    QCheckBox* itemTrainers = nullptr;
+    QCheckBox* dataTradeEvos = nullptr;
+    QWidget* buildRaidPage();
+    QWidget* buildItemPage();
+    QWidget* buildDataPage();
+    void refreshExtraPages();
 
     QString lastSeed;
     swsh::DumpCheck check;

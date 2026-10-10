@@ -108,6 +108,7 @@ class GfPak {
 public:
     bool load(const QByteArray& data);
     int indexOf(const QString& fileName) const; // -1 = nicht gefunden
+    int count() const { return entries.size(); }
     QByteArray file(int index) const;
     void setFile(int index, const QByteArray& data);
     QByteArray save() const;
@@ -203,10 +204,16 @@ public:
     bool load(const QString& folder, int count);
     QList<Evolution> get(int index) const;
     QByteArray rawFile(int index) const { return files.value(index); }
+    // Ersetzt die Entwicklungen eines Eintrags (max. so viele, wie die Datei Platz hat)
+    bool set(int index, const QList<Evolution>& evolutions);
+    // Schreibt nur geaenderte Dateien
+    bool save(const QString& outRomfs) const;
+    const QList<int>& changedIndexes() const { return changed; }
     static QString fileName(int index);
 
 private:
     QVector<QByteArray> files;
+    QList<int> changed;
 };
 
 // --------------------------------------------------------------- Attacken

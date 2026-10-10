@@ -699,6 +699,39 @@ QList<Evolution> EvolutionTable::get(int index) const {
     return result;
 }
 
+bool EvolutionTable::set(int index, const QList<Evolution>& evolutions) {
+    if (index < 0 || index >= files.size()) {
+        return false;
+    }
+    QByteArray data = files[index];
+    const int capacity = data.size() / 8;
+    if (evolutions.size() > capacity) {
+        return false; // passt nicht in die Datei
+    }
+    data.fill('\0');
+    for (int i = 0; i < evolutions.size(); i++) {
+        const Evolution& e = evolutions[i];
+        writeU16(data, i * 8, static_cast<quint16>(e.method));
+        writeU16(data, i * 8 + 2, static_cast<quint16>(e.argument));
+        writeU16(data, i * 8 + 4, static_cast<quint16>(e.species));
+        data[i * 8 + 6] = static_cast<char>(e.form);
+        data[i * 8 + 7] = static_cast<char>(e.level);
+    }
+    files[index] = data;
+    if (!changed.contains(index)) {
+        changed.append(index);
+    }
+    return true;
+}
+
+bool EvolutionTable::save(const QString& outRomfs) const {
+    bool ok = true;
+    for (int index : changed) {
+        ok &= writeFile(outRomfs + "/" + path::Evolutions + "/" + fileName(index), files[index]);
+    }
+    return ok;
+}
+
 // --------------------------------------------------------------- Attacken
 
 bool MoveTable::load(const QString& folder) {

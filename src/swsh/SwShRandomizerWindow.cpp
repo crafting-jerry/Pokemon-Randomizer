@@ -20,6 +20,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QCompleter>
+#include <functional>
 #include <memory>
 #include <vector>
 #include <QLineEdit>
@@ -27,7 +28,8 @@
 using namespace modernui;
 
 namespace {
-const QStringList kPages = {"Start", "Trainer", "Starter & Geschenke", "Wilde Pokémon"};
+const QStringList kPages = {"Start", "Trainer", "Starter & Geschenke", "Wilde Pokémon", "Dyna-Raids", "Items",
+                            "Pokémon-Daten"};
 
 const char* kSettingsOrg = "Pokemon Randomizer";
 const char* kSettingsApp = "SchwertSchild";
@@ -52,6 +54,9 @@ SwShRandomizerWindow::SwShRandomizerWindow(QWidget* parent) : QWidget(parent) {
     pages->addWidget(buildTrainerPage());
     pages->addWidget(buildStartersPage());
     pages->addWidget(buildWildPage());
+    pages->addWidget(buildRaidPage());
+    pages->addWidget(buildItemPage());
+    pages->addWidget(buildDataPage());
     middle->addWidget(pages, 1);
 
     root->addLayout(middle, 1);
@@ -456,6 +461,9 @@ QStringList SwShRandomizerWindow::activeAreas() const {
     if (encounterSettings.statics || encounterSettings.overworld) areas << "Begegnungen";
     if (encounterSettings.trades) areas << "Tausch";
     if (wildSettings.enabled) areas << "Wilde Pokémon";
+    if (raidSettings.enabled) areas << "Dyna-Raids";
+    if (itemSettings.anyEnabled()) areas << "Items";
+    if (dataSettings.anyEnabled()) areas << "Pokémon-Daten";
     return areas;
 }
 
@@ -482,6 +490,7 @@ void SwShRandomizerWindow::refreshAllPages() {
     refreshTrainerPage();
     refreshStartersPage();
     refreshWildPage();
+    refreshExtraPages();
     updateStatus();
 }
 
@@ -575,6 +584,149 @@ void SwShRandomizerWindow::refreshWildPage() {
     wildStrength->setChecked(wildSettings.similarStrength);
     wildLegends->setChecked(wildSettings.legendaries);
     wildContent->setEnabled(wildSettings.enabled);
+}
+
+// ------------------------------------------- Dyna-Raids, Items, Daten
+
+namespace {
+QCheckBox* addOption(QVBoxLayout* layout, QWidget* parent, const QString& text, const QString& info, bool* target,
+                     QObject* context, std::function<void()> after = nullptr) {
+    auto* box = new QCheckBox(text, parent);
+    layout->addLayout(rowWithInfo(box, info));
+    QObject::connect(box, &QCheckBox::toggled, context, [target, after](bool on) {
+        *target = on;
+        if (after) after();
+    });
+    return box;
+}
+} // namespace
+
+QWidget* SwShRandomizerWindow::buildRaidPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    auto* row = new QHBoxLayout();
+    raidSwitch = new QCheckBox("Dyna-Raids randomisieren", content);
+    raidSwitch->setObjectName("masterSwitch");
+    row->addWidget(raidSwitch);
+    row->addWidget(new InfoButton("Die Pokémon in den Dyna-Raid-Nestern der Naturzone, auf der Insel der Rüstung und in "
+                                  "der Krone-Tundra. Wie selten ein Pokémon ist und ab wie vielen Sternen es auftaucht, "
+                                  "bleibt erhalten. Es kommen nur Pokémon, die dynamaximieren können.", content));
+    row->addStretch();
+    layout->addLayout(row);
+    connect(raidSwitch, &QCheckBox::toggled, this, [this](bool on) {
+        raidSettings.enabled = on;
+        raidContent->setEnabled(on);
+        updateStatus();
+    });
+
+    raidContent = new QWidget(content);
+    auto* inner = new QVBoxLayout(raidContent);
+    inner->setContentsMargins(0, 0, 0, 0);
+    auto* card = new Card("Einstellungen", QString(), raidContent);
+    raidGmax = addOption(card->body(), card, "Gigadynamax-Raids behalten",
+        "Raids mit Gigadynamax-Pokémon bekommen wieder ein Pokémon mit Gigadynamax-Form.", &raidSettings.keepGigantamax, this);
+    raidLevel = addOption(card->body(), card, "Level-passende Entwicklungen",
+        "In 1- und 2-Sterne-Raids tauchen keine Endstufen auf, die auf diesem Level noch nicht entwickelt wären. "
+        "Grundlage: 1★ ≈ Lv. 15, 2★ ≈ 25, 3★ ≈ 35, 4★ ≈ 45, 5★ ≈ 55.", &raidSettings.levelAppropriate, this);
+    raidType = addOption(card->body(), card, "Gleicher Typ wie das Original",
+        "Optional: Das neue Pokémon teilt einen Typ mit dem alten. Nester mit einem Typ-Thema behalten so ihr Thema.",
+        &raidSettings.sameType, this);
+    raidStrength = addOption(card->body(), card, "Ähnlich starke Pokémon",
+        "Optional: ungefähr dieselbe Basiswerte-Summe wie das alte Pokémon.", &raidSettings.similarStrength, this);
+    raidLegends = addOption(card->body(), card, "Legendäre Pokémon erlauben",
+        "Legendäre, Mysteriöse und Ultrabestien dürfen in normalen Raids auftauchen.", &raidSettings.legendaries, this);
+    inner->addWidget(card);
+    layout->addWidget(raidContent);
+    layout->addStretch();
+    return wrapPage("Dyna-Raids", "Raid-Nester in der Naturzone und den Gebieten des Erweiterungspasses.", content);
+}
+
+QWidget* SwShRandomizerWindow::buildItemPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    auto* world = new Card("Items in der Spielwelt", QString(), content);
+    {
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("Verteilung", world));
+        row->addWidget(new InfoButton(
+            "Mischen: Alle Items bleiben im Spiel, liegen aber an anderen Orten. Es gibt also genauso viele "
+            "Sonderbonbons wie im Original.\n"
+            "Komplett zufällig: Jeder Ort bekommt ein zufälliges Item, das im Spiel vorkommt.", world));
+        row->addStretch();
+        itemMode = new SegmentedControl({"Mischen", "Komplett zufällig"}, world);
+        row->addWidget(itemMode);
+        world->body()->addLayout(row);
+        connect(itemMode, &SegmentedControl::changed, this, [this](int v) { itemSettings.mode = v; });
+    }
+    auto status = [this]() { updateStatus(); };
+    itemField = addOption(world->body(), world, "Items auf dem Boden",
+        "Die Pokéball-Symbole auf Routen, in Städten und in der Naturzone. TMs (gelbe Bälle) bleiben, wo sie sind.",
+        &itemSettings.fieldItems, this, status);
+    itemHidden = addOption(world->body(), world, "Versteckte Items",
+        "Die glitzernden Stellen auf dem Boden, z. B. mit Wunschbrocken, Federn oder Sternenstaub.",
+        &itemSettings.hiddenItems, this, status);
+    layout->addWidget(world);
+
+    auto* other = new Card("Shops und Trainer", QString(), content);
+    itemShops = addOption(other->body(), other, "Shop-Angebote zufällig",
+        "Die Angebote in den Shops werden zufällig. Pokébälle, Tränke, Beleber, Heiler und Schutz bleiben immer "
+        "erhältlich, TMs ebenfalls.", &itemSettings.shops, this, status);
+    itemTrainers = addOption(other->body(), other, "Items der Trainer-Pokémon zufällig",
+        "Trainer-Pokémon, die im Original ein Item tragen, bekommen ein zufälliges Kampf-Item "
+        "(z. B. Überreste, Leben-Orb, Wahlschal, Fokusgurt oder typverstärkende Items).",
+        &itemSettings.trainerItems, this, status);
+    layout->addWidget(other);
+    layout->addStretch();
+    return wrapPage("Items", "Gegenstände in der Spielwelt, in Shops und bei Trainern.", content);
+}
+
+QWidget* SwShRandomizerWindow::buildDataPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    auto* evo = new Card("Entwicklungen", QString(), content);
+    dataTradeEvos = addOption(evo->body(), evo, "Tausch-Entwicklungen ohne Tausch",
+        "Pokémon, die sich nur durch Tausch entwickeln, entwickeln sich jetzt allein:\n"
+        "• Kadabra, Maschock, Alpollo, Sedimantur, Strepoli, Paragoni, Irrbis, Laukaps und Schnuthelm ab Level 37\n"
+        "• Tausch mit Item (z. B. Onix mit Metallmantel): Level-Aufstieg, während es das Item trägt",
+        &dataSettings.tradeEvolutions, this, [this]() { updateStatus(); });
+    layout->addWidget(evo);
+    layout->addWidget(mutedLabel("Weitere Optionen für Fähigkeiten, Typen, Basiswerte und Attacken folgen im nächsten Schritt.",
+                                 content));
+    layout->addStretch();
+    return wrapPage("Pokémon-Daten", "Entwicklungen und Werte der Pokémon.", content);
+}
+
+void SwShRandomizerWindow::refreshExtraPages() {
+    if (raidSwitch == nullptr || itemMode == nullptr || dataTradeEvos == nullptr) {
+        return;
+    }
+    std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+    for (QWidget* w : std::initializer_list<QWidget*>{raidSwitch, raidLevel, raidGmax, raidType, raidStrength, raidLegends,
+                                                     itemMode, itemField, itemHidden, itemShops, itemTrainers, dataTradeEvos}) {
+        blockers.push_back(std::make_unique<QSignalBlocker>(w));
+    }
+    raidSwitch->setChecked(raidSettings.enabled);
+    raidLevel->setChecked(raidSettings.levelAppropriate);
+    raidGmax->setChecked(raidSettings.keepGigantamax);
+    raidType->setChecked(raidSettings.sameType);
+    raidStrength->setChecked(raidSettings.similarStrength);
+    raidLegends->setChecked(raidSettings.legendaries);
+    raidContent->setEnabled(raidSettings.enabled);
+    itemMode->setCurrent(itemSettings.mode);
+    itemField->setChecked(itemSettings.fieldItems);
+    itemHidden->setChecked(itemSettings.hiddenItems);
+    itemShops->setChecked(itemSettings.shops);
+    itemTrainers->setChecked(itemSettings.trainerItems);
+    dataTradeEvos->setChecked(dataSettings.tradeEvolutions);
 }
 
 // ---------------------------------------------------- Starter & Geschenke
@@ -928,36 +1080,68 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
     }
     const quint64 seed = seedFromText(seedText);
 
+    const QString romfs = QDir::fromNativeSeparators(romfsEdit->text().trimmed());
+    swsh::GameTexts texts;
+    texts.load(romfs);
+    auto fail = [error](const QString& message) {
+        if (error) *error = message;
+        return false;
+    };
+
     swsh::GameFiles work = *files; // Original bleibt fuer weitere Durchlaeufe unveraendert
+
+    // Pokemon-Daten zuerst, damit Trainer und wilde Pokemon die neuen Entwicklungen kennen
+    QList<swsh::EvolutionChange> evolutionChanges;
+    if (dataSettings.tradeEvolutions) {
+        evolutionChanges = swsh::removeTradeEvolutions(work, texts);
+    }
+
     swsh::TrainerRandomizerResult result = swsh::randomizeTrainers(work, trainerSettings, seed);
 
-    const QString romfs = QDir::fromNativeSeparators(romfsEdit->text().trimmed());
+    QString stepError;
     swsh::EncounterResult encounters;
-    QString encounterError;
-    if (!swsh::randomizeEncounters(romfs, *files, encounterSettings, seed, encounters, &encounterError)) {
-        if (error) *error = encounterError;
-        return false;
-    }
+    if (!swsh::randomizeEncounters(romfs, work, encounterSettings, seed, encounters, &stepError)) return fail(stepError);
 
     swsh::WildResult wild;
-    if (!swsh::randomizeWild(romfs, *files, wildSettings, seed, wild, &encounterError)) {
-        if (error) *error = encounterError;
-        return false;
+    if (!swsh::randomizeWild(romfs, work, wildSettings, seed, wild, &stepError)) return fail(stepError);
+
+    // data_table.gfpak: wilde Pokemon und Raids teilen sich die Datei
+    QByteArray dataTable = wild.dataTable;
+    swsh::RaidResult raids;
+    if (raidSettings.enabled) {
+        if (dataTable.isEmpty()) dataTable = swsh::readFile(romfs + "/bin/archive/field/resident/data_table.gfpak");
+        if (!swsh::randomizeRaids(dataTable, work, raidSettings, seed, raids, &stepError)) return fail(stepError);
     }
+
+    // placement.gfpak: Starter-Modelle und Items teilen sich die Datei
+    QByteArray placement = encounters.placement;
+    swsh::ItemResult items;
+    QList<int> changedTrainers = result.changedIndexes;
+    if (itemSettings.anyEnabled()) {
+        const QByteArray input = placement.isEmpty() ? swsh::readFile(romfs + "/" + swsh::path::Placement) : placement;
+        if (!swsh::randomizeItems(romfs, input, work, &changedTrainers, itemSettings, seed, items, &stepError)) {
+            return fail(stepError);
+        }
+        if (!items.placement.isEmpty()) placement = items.placement;
+    }
+    encounters.placement = placement;
 
     QDir(outputFolder).removeRecursively();
     const QString romfsOut = outputFolder + "/romfs";
-    if (!work.trainers.save(romfsOut, result.changedIndexes) || !swsh::writeEncounters(romfsOut, encounters) ||
-        !swsh::writeWild(romfsOut, wild)) {
-        if (error) *error = "Die Dateien konnten nicht geschrieben werden:\n" + romfsOut;
-        return false;
+    bool written = work.trainers.save(romfsOut, changedTrainers) && swsh::writeEncounters(romfsOut, encounters) &&
+                   work.evolutions.save(romfsOut);
+    if (!dataTable.isEmpty()) {
+        written &= swsh::writeFile(romfsOut + "/bin/archive/field/resident/data_table.gfpak", dataTable);
     }
+    if (!items.shops.isEmpty()) {
+        written &= swsh::writeFile(romfsOut + "/bin/appli/shop/bin/shop_data.bin", items.shops);
+    }
+    if (!written) return fail("Die Dateien konnten nicht geschrieben werden:\n" + romfsOut);
 
     if (spoilerLog->isChecked()) {
-        swsh::GameTexts texts;
-        texts.load(romfs);
-        QList<swsh::SpoilerSection> sections = swsh::encounterSpoiler(encounters, *files, texts);
-        sections += swsh::wildSpoiler(wild, *files, texts, swsh::readMessage(romfs, "place_name_indirect"), check.version);
+        QList<swsh::SpoilerSection> sections = swsh::encounterSpoiler(encounters, work, texts);
+        sections += swsh::wildSpoiler(wild, work, texts, swsh::readMessage(romfs, "place_name_indirect"), check.version);
+        sections += swsh::extrasSpoiler(evolutionChanges, raids, items, texts, check.version);
         swsh::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, sections, seedText,
                            check.version);
     }
@@ -973,7 +1157,10 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << encounters.changes.size() << "\n\n";
         out << "Trainer-Einstellungen:\n" << QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson() << "\n";
         out << "Starter & Geschenke:\n" << QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson() << "\n";
-        out << "Wilde Pokémon:\n" << QJsonDocument(swsh::wildSettingsToJson(wildSettings)).toJson();
+        out << "Wilde Pokémon:\n" << QJsonDocument(swsh::wildSettingsToJson(wildSettings)).toJson() << "\n";
+        out << "Dyna-Raids:\n" << QJsonDocument(swsh::raidSettingsToJson(raidSettings)).toJson() << "\n";
+        out << "Items:\n" << QJsonDocument(swsh::itemSettingsToJson(itemSettings)).toJson() << "\n";
+        out << "Pokémon-Daten:\n" << QJsonDocument(swsh::pokemonDataSettingsToJson(dataSettings)).toJson();
     }
     lastSeed = seedText;
     return true;
@@ -1022,6 +1209,9 @@ void SwShRandomizerWindow::saveSettings() const {
     settings.setValue("Seed", seedEdit->text());
     settings.setValue("SpoilerLog", spoilerLog->isChecked());
     settings.setValue("Trainer", QString::fromUtf8(QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson(QJsonDocument::Compact)));
+    settings.setValue("Raids", QString::fromUtf8(QJsonDocument(swsh::raidSettingsToJson(raidSettings)).toJson(QJsonDocument::Compact)));
+    settings.setValue("Items", QString::fromUtf8(QJsonDocument(swsh::itemSettingsToJson(itemSettings)).toJson(QJsonDocument::Compact)));
+    settings.setValue("PokemonData", QString::fromUtf8(QJsonDocument(swsh::pokemonDataSettingsToJson(dataSettings)).toJson(QJsonDocument::Compact)));
     settings.setValue("Wild", QString::fromUtf8(QJsonDocument(swsh::wildSettingsToJson(wildSettings)).toJson(QJsonDocument::Compact)));
     settings.setValue("Encounters", QString::fromUtf8(QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson(QJsonDocument::Compact)));
 }
@@ -1048,6 +1238,13 @@ void SwShRandomizerWindow::loadSettings() {
         swsh::wildSettingsFromJson(wildJson.object(), wildSettings);
         refreshWildPage();
     }
+    const QJsonDocument raidJson = QJsonDocument::fromJson(settings.value("Raids").toString().toUtf8());
+    if (raidJson.isObject()) swsh::raidSettingsFromJson(raidJson.object(), raidSettings);
+    const QJsonDocument itemJson = QJsonDocument::fromJson(settings.value("Items").toString().toUtf8());
+    if (itemJson.isObject()) swsh::itemSettingsFromJson(itemJson.object(), itemSettings);
+    const QJsonDocument dataJson = QJsonDocument::fromJson(settings.value("PokemonData").toString().toUtf8());
+    if (dataJson.isObject()) swsh::pokemonDataSettingsFromJson(dataJson.object(), dataSettings);
+    refreshExtraPages();
     const QString romfs = settings.value("RomFS").toString();
     const QString exefs = settings.value("ExeFS").toString();
     if (romfs.isEmpty() && exefs.isEmpty()) {
