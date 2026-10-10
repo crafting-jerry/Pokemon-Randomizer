@@ -156,6 +156,15 @@ public:
     bool canLearnTM(int index, int tm) const;  // 0..99
     bool canLearnTR(int index, int tr) const;  // 0..99
 
+    // Aendern (fuer Pokemon-Daten)
+    void setByte(int index, int offset, int value);
+    void setU16(int index, int offset, int value);
+    void setStat(int index, int which, int value) { setByte(index, qBound(0, which, 5), value); }
+    void setTypes(int index, int t1, int t2) { setByte(index, 0x06, t1); setByte(index, 0x07, t2); }
+    void setAbility(int index, int slot, int value) { setU16(index, 0x18 + 2 * qBound(0, slot, 2), value); }
+    void setTM(int index, int tm, bool value);
+    void setTR(int index, int tr, bool value);
+
 private:
     int byteAt(int index, int offset) const;
     int u16At(int index, int offset) const;

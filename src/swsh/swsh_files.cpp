@@ -595,6 +595,30 @@ bool PersonalTable::canLearnTR(int index, int tr) const {
     return (byteAt(index, 0x3C + tr / 8) >> (tr % 8)) & 1;
 }
 
+void PersonalTable::setByte(int index, int offset, int value) {
+    if (index < 0 || index >= count()) return;
+    raw[index * kPersonalSize + offset] = static_cast<char>(value & 0xFF);
+}
+
+void PersonalTable::setU16(int index, int offset, int value) {
+    if (index < 0 || index >= count()) return;
+    writeU16(raw, index * kPersonalSize + offset, static_cast<quint16>(value));
+}
+
+void PersonalTable::setTM(int index, int tm, bool value) {
+    if (tm < 0 || tm >= 100) return;
+    int b = byteAt(index, 0x28 + tm / 8);
+    b = value ? (b | (1 << (tm % 8))) : (b & ~(1 << (tm % 8)));
+    setByte(index, 0x28 + tm / 8, b);
+}
+
+void PersonalTable::setTR(int index, int tr, bool value) {
+    if (tr < 0 || tr >= 100) return;
+    int b = byteAt(index, 0x3C + tr / 8);
+    b = value ? (b | (1 << (tr % 8))) : (b & ~(1 << (tr % 8)));
+    setByte(index, 0x3C + tr / 8, b);
+}
+
 const QList<int> kTMMoves = {
     5, 25, 6, 7, 8, 9, 19, 42, 63, 416, 345, 76, 669, 83, 86, 91, 103, 113, 115, 219,
     120, 156, 157, 168, 173, 182, 184, 196, 202, 204, 211, 213, 201, 240, 241, 258, 250, 251, 261, 263,

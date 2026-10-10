@@ -29,7 +29,7 @@ using namespace modernui;
 
 namespace {
 const QStringList kPages = {"Start", "Trainer", "Starter & Geschenke", "Wilde Pokémon", "Dyna-Raids", "Items",
-                            "Pokémon-Daten"};
+                            "Pokémon-Daten", "Dyna-Höhle & Kampfturm"};
 
 const char* kSettingsOrg = "Pokemon Randomizer";
 const char* kSettingsApp = "SchwertSchild";
@@ -57,6 +57,7 @@ SwShRandomizerWindow::SwShRandomizerWindow(QWidget* parent) : QWidget(parent) {
     pages->addWidget(buildRaidPage());
     pages->addWidget(buildItemPage());
     pages->addWidget(buildDataPage());
+    pages->addWidget(buildFacilityPage());
     middle->addWidget(pages, 1);
 
     root->addLayout(middle, 1);
@@ -464,6 +465,8 @@ QStringList SwShRandomizerWindow::activeAreas() const {
     if (raidSettings.enabled) areas << "Dyna-Raids";
     if (itemSettings.anyEnabled()) areas << "Items";
     if (dataSettings.anyEnabled()) areas << "Pokémon-Daten";
+    if (facilitySettings.maxLair || facilitySettings.maxLairLegends) areas << "Dyna-Höhle";
+    if (facilitySettings.tower) areas << "Kampfturm";
     return areas;
 }
 
@@ -692,26 +695,96 @@ QWidget* SwShRandomizerWindow::buildDataPage() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(12);
 
+    auto status = [this]() { updateStatus(); };
     auto* evo = new Card("Entwicklungen", QString(), content);
     dataTradeEvos = addOption(evo->body(), evo, "Tausch-Entwicklungen ohne Tausch",
         "Pokémon, die sich nur durch Tausch entwickeln, entwickeln sich jetzt allein:\n"
         "• Kadabra, Maschock, Alpollo, Sedimantur, Strepoli, Paragoni, Irrbis, Laukaps und Schnuthelm ab Level 37\n"
         "• Tausch mit Item (z. B. Onix mit Metallmantel): Level-Aufstieg, während es das Item trägt",
-        &dataSettings.tradeEvolutions, this, [this]() { updateStatus(); });
+        &dataSettings.tradeEvolutions, this, status);
     layout->addWidget(evo);
-    layout->addWidget(mutedLabel("Weitere Optionen für Fähigkeiten, Typen, Basiswerte und Attacken folgen im nächsten Schritt.",
-                                 content));
+
+    auto* values = new Card("Werte und Fähigkeiten", QString(), content);
+    dataAbilities = addOption(values->body(), values, "Fähigkeiten zufällig",
+        "Jedes Pokémon bekommt zufällige Fähigkeiten (normal und versteckt). Spezial-Fähigkeiten wie Wunderwache, "
+        "Kostüm oder Trance-Modus werden weder vergeben noch weggenommen.", &dataSettings.abilities, this, status);
+    dataTypes = addOption(values->body(), values, "Typen zufällig",
+        "Die Typen werden neu verteilt. Einfache Pokémon bleiben einfach, doppelte bleiben doppelt. Ein Feuer-Pokémon "
+        "wird also z. B. komplett zum Psycho-Pokémon.", &dataSettings.types, this, status);
+    dataStats = addOption(values->body(), values, "Basiswerte mischen",
+        "Die sechs Basiswerte werden untereinander vertauscht – die Summe bleibt gleich. Ein schneller Angreifer kann so "
+        "zu einem langsamen Verteidiger werden. Ninjatom behält seinen 1 KP.", &dataSettings.stats, this, status);
+    dataFamilies = addOption(values->body(), values, "Entwicklungsreihen einheitlich",
+        "Empfohlen: Alle Pokémon einer Entwicklungsreihe bekommen dieselben Fähigkeiten, dieselbe Typ-Zuordnung und "
+        "dieselbe Werte-Verteilung (Glumanda, Glutexo und Glurak passen also zusammen).", &dataSettings.keepFamilies, this);
+    layout->addWidget(values);
+
+    auto* moves = new Card("Attacken", QString(), content);
+    dataMoves = addOption(moves->body(), moves, "Level-Attacken zufällig",
+        "Jedes Pokémon lernt per Level zufällige Attacken – etwa zwei Drittel Schadensattacken, davon die Hälfte vom "
+        "eigenen Typ. Schwache Attacken kommen früh, starke spät. Die erste Attacke ist immer eine Schadensattacke.",
+        &dataSettings.levelMoves, this, status);
+    {
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("TM- und TP-Kompatibilität", moves));
+        row->addWidget(new InfoButton("Original: wie im Spiel.\n"
+                                      "Zufällig: jedes Pokémon kann genauso viele TMs/TPs lernen wie vorher, aber andere.\n"
+                                      "Alle: jedes Pokémon kann jede TM und jede TP lernen.", moves));
+        row->addStretch();
+        dataTMs = new SegmentedControl({"Original", "Zufällig", "Alle"}, moves);
+        row->addWidget(dataTMs);
+        moves->body()->addLayout(row);
+        connect(dataTMs, &SegmentedControl::changed, this, [this](int v) {
+            dataSettings.tmMode = v;
+            updateStatus();
+        });
+    }
+    layout->addWidget(moves);
+    layout->addWidget(mutedLabel("Trainer, wilde Pokémon und Raids berücksichtigen die neuen Daten automatisch "
+                                 "(z. B. Typ-Arenen und starke Movesets).", content));
     layout->addStretch();
-    return wrapPage("Pokémon-Daten", "Entwicklungen und Werte der Pokémon.", content);
+    return wrapPage("Pokémon-Daten", "Entwicklungen, Typen, Werte, Fähigkeiten und Attacken der Pokémon.", content);
+}
+
+QWidget* SwShRandomizerWindow::buildFacilityPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+    auto status = [this]() { updateStatus(); };
+
+    auto* lairCard = new Card("Dynamax-Abenteuer", "Krone-Tundra", content);
+    lairBox = addOption(lairCard->body(), lairCard, "Leih- und Gegner-Pokémon zufällig",
+        "Die Pokémon, die du in der Dyna-Höhle ausleihst und gegen die du kämpfst. Es kommen nur Pokémon, die "
+        "dynamaximieren können. Sie bekommen starke Movesets für ihr Level.", &facilitySettings.maxLair, this, status);
+    lairLegendsBox = addOption(lairCard->body(), lairCard, "Legendäre am Ende der Höhle zufällig",
+        "Die Legendären am Ende einer Tour werden durch andere Legendäre ersetzt (jedes nur einmal). Der Hinweis-Text "
+        "vor der Tour nennt eventuell noch das ursprüngliche Pokémon.", &facilitySettings.maxLairLegends, this, status);
+    layout->addWidget(lairCard);
+
+    auto* towerCard = new Card("Kampfturm", QString(), content);
+    towerBox = addOption(towerCard->body(), towerCard, "Kampfturm-Teams zufällig",
+        "Alle Pokémon, aus denen die Gegner im Kampfturm ihre Teams zusammenstellen, werden zufällig. Sie bekommen "
+        "starke Movesets für Level 50 und Kampf-Items.", &facilitySettings.tower, this, status);
+    towerEvolvedBox = addOption(towerCard->body(), towerCard, "Nur voll entwickelte Pokémon",
+        "Im Kampfturm treten nur Endstufen oder Pokémon ohne Entwicklung an – wie im Original.",
+        &facilitySettings.towerFullyEvolved, this);
+    towerLegendsBox = addOption(towerCard->body(), towerCard, "Legendäre Pokémon erlauben",
+        "Gegner im Kampfturm dürfen auch Legendäre einsetzen.", &facilitySettings.towerLegendaries, this);
+    layout->addWidget(towerCard);
+    layout->addStretch();
+    return wrapPage("Dyna-Höhle & Kampfturm", "Dynamax-Abenteuer in der Krone-Tundra und Kampfturm in Score City.", content);
 }
 
 void SwShRandomizerWindow::refreshExtraPages() {
-    if (raidSwitch == nullptr || itemMode == nullptr || dataTradeEvos == nullptr) {
+    if (raidSwitch == nullptr || itemMode == nullptr || dataTradeEvos == nullptr || towerBox == nullptr) {
         return;
     }
     std::vector<std::unique_ptr<QSignalBlocker>> blockers;
     for (QWidget* w : std::initializer_list<QWidget*>{raidSwitch, raidLevel, raidGmax, raidType, raidStrength, raidLegends,
-                                                     itemMode, itemField, itemHidden, itemShops, itemTrainers, dataTradeEvos}) {
+                                                     itemMode, itemField, itemHidden, itemShops, itemTrainers, dataTradeEvos,
+                                                     dataAbilities, dataTypes, dataStats, dataMoves, dataFamilies, dataTMs,
+                                                     lairBox, lairLegendsBox, towerBox, towerEvolvedBox, towerLegendsBox}) {
         blockers.push_back(std::make_unique<QSignalBlocker>(w));
     }
     raidSwitch->setChecked(raidSettings.enabled);
@@ -727,6 +800,17 @@ void SwShRandomizerWindow::refreshExtraPages() {
     itemShops->setChecked(itemSettings.shops);
     itemTrainers->setChecked(itemSettings.trainerItems);
     dataTradeEvos->setChecked(dataSettings.tradeEvolutions);
+    dataAbilities->setChecked(dataSettings.abilities);
+    dataTypes->setChecked(dataSettings.types);
+    dataStats->setChecked(dataSettings.stats);
+    dataMoves->setChecked(dataSettings.levelMoves);
+    dataFamilies->setChecked(dataSettings.keepFamilies);
+    dataTMs->setCurrent(dataSettings.tmMode);
+    lairBox->setChecked(facilitySettings.maxLair);
+    lairLegendsBox->setChecked(facilitySettings.maxLairLegends);
+    towerBox->setChecked(facilitySettings.tower);
+    towerEvolvedBox->setChecked(facilitySettings.towerFullyEvolved);
+    towerLegendsBox->setChecked(facilitySettings.towerLegendaries);
 }
 
 // ---------------------------------------------------- Starter & Geschenke
@@ -1095,6 +1179,7 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
     if (dataSettings.tradeEvolutions) {
         evolutionChanges = swsh::removeTradeEvolutions(work, texts);
     }
+    const swsh::PokemonDataResult dataResult = swsh::randomizePokemonData(work, dataSettings, seed);
 
     swsh::TrainerRandomizerResult result = swsh::randomizeTrainers(work, trainerSettings, seed);
 
@@ -1112,6 +1197,9 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         if (dataTable.isEmpty()) dataTable = swsh::readFile(romfs + "/bin/archive/field/resident/data_table.gfpak");
         if (!swsh::randomizeRaids(dataTable, work, raidSettings, seed, raids, &stepError)) return fail(stepError);
     }
+
+    swsh::FacilityResult facilities;
+    if (!swsh::randomizeFacilities(romfs, work, facilitySettings, seed, facilities, &stepError)) return fail(stepError);
 
     // placement.gfpak: Starter-Modelle und Items teilen sich die Datei
     QByteArray placement = encounters.placement;
@@ -1133,6 +1221,9 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
     if (!dataTable.isEmpty()) {
         written &= swsh::writeFile(romfsOut + "/bin/archive/field/resident/data_table.gfpak", dataTable);
     }
+    written &= swsh::writeFacilities(romfsOut, facilities);
+    if (dataResult.personalChanged) written &= swsh::writeFile(romfsOut + "/" + swsh::path::Personal, work.personal.save());
+    if (dataResult.learnsetsChanged) written &= swsh::writeFile(romfsOut + "/" + swsh::path::Learnsets, work.learnsets.save());
     if (!items.shops.isEmpty()) {
         written &= swsh::writeFile(romfsOut + "/bin/appli/shop/bin/shop_data.bin", items.shops);
     }
@@ -1142,6 +1233,7 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         QList<swsh::SpoilerSection> sections = swsh::encounterSpoiler(encounters, work, texts);
         sections += swsh::wildSpoiler(wild, work, texts, swsh::readMessage(romfs, "place_name_indirect"), check.version);
         sections += swsh::extrasSpoiler(evolutionChanges, raids, items, texts, check.version);
+        sections += swsh::dataSpoiler(dataResult, facilities, work, texts);
         swsh::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, sections, seedText,
                            check.version);
     }
@@ -1160,7 +1252,8 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         out << "Wilde Pokémon:\n" << QJsonDocument(swsh::wildSettingsToJson(wildSettings)).toJson() << "\n";
         out << "Dyna-Raids:\n" << QJsonDocument(swsh::raidSettingsToJson(raidSettings)).toJson() << "\n";
         out << "Items:\n" << QJsonDocument(swsh::itemSettingsToJson(itemSettings)).toJson() << "\n";
-        out << "Pokémon-Daten:\n" << QJsonDocument(swsh::pokemonDataSettingsToJson(dataSettings)).toJson();
+        out << "Pokémon-Daten:\n" << QJsonDocument(swsh::pokemonDataSettingsToJson(dataSettings)).toJson() << "\n";
+        out << "Dyna-Höhle & Kampfturm:\n" << QJsonDocument(swsh::facilitySettingsToJson(facilitySettings)).toJson();
     }
     lastSeed = seedText;
     return true;
@@ -1209,6 +1302,7 @@ void SwShRandomizerWindow::saveSettings() const {
     settings.setValue("Seed", seedEdit->text());
     settings.setValue("SpoilerLog", spoilerLog->isChecked());
     settings.setValue("Trainer", QString::fromUtf8(QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson(QJsonDocument::Compact)));
+    settings.setValue("Facilities", QString::fromUtf8(QJsonDocument(swsh::facilitySettingsToJson(facilitySettings)).toJson(QJsonDocument::Compact)));
     settings.setValue("Raids", QString::fromUtf8(QJsonDocument(swsh::raidSettingsToJson(raidSettings)).toJson(QJsonDocument::Compact)));
     settings.setValue("Items", QString::fromUtf8(QJsonDocument(swsh::itemSettingsToJson(itemSettings)).toJson(QJsonDocument::Compact)));
     settings.setValue("PokemonData", QString::fromUtf8(QJsonDocument(swsh::pokemonDataSettingsToJson(dataSettings)).toJson(QJsonDocument::Compact)));
@@ -1244,6 +1338,8 @@ void SwShRandomizerWindow::loadSettings() {
     if (itemJson.isObject()) swsh::itemSettingsFromJson(itemJson.object(), itemSettings);
     const QJsonDocument dataJson = QJsonDocument::fromJson(settings.value("PokemonData").toString().toUtf8());
     if (dataJson.isObject()) swsh::pokemonDataSettingsFromJson(dataJson.object(), dataSettings);
+    const QJsonDocument facilityJson = QJsonDocument::fromJson(settings.value("Facilities").toString().toUtf8());
+    if (facilityJson.isObject()) swsh::facilitySettingsFromJson(facilityJson.object(), facilitySettings);
     refreshExtraPages();
     const QString romfs = settings.value("RomFS").toString();
     const QString exefs = settings.value("ExeFS").toString();

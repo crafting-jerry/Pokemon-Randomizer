@@ -296,6 +296,7 @@ void GameTexts::load(const QString& romfs) {
     types = readMessage(romfs, "typename");
     trainerNames = readMessage(romfs, "trname");
     trainerClasses = readMessage(romfs, "trtype");
+    abilities = readMessage(romfs, "tokusei");
 }
 
 namespace {

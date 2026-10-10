@@ -45,6 +45,7 @@ public:
     swsh::RaidSettings& raidSettingsRef() { return raidSettings; }
     swsh::ItemSettings& itemSettingsRef() { return itemSettings; }
     swsh::PokemonDataSettings& dataSettingsRef() { return dataSettings; }
+    swsh::FacilitySettings& facilitySettingsRef() { return facilitySettings; }
     void refreshAllPages();
     void showPage(int index);
 
@@ -133,6 +134,19 @@ private:
     QCheckBox* itemShops = nullptr;
     QCheckBox* itemTrainers = nullptr;
     QCheckBox* dataTradeEvos = nullptr;
+    QCheckBox* dataAbilities = nullptr;
+    QCheckBox* dataTypes = nullptr;
+    QCheckBox* dataStats = nullptr;
+    QCheckBox* dataMoves = nullptr;
+    QCheckBox* dataFamilies = nullptr;
+    modernui::SegmentedControl* dataTMs = nullptr;
+    swsh::FacilitySettings facilitySettings;
+    QCheckBox* lairBox = nullptr;
+    QCheckBox* lairLegendsBox = nullptr;
+    QCheckBox* towerBox = nullptr;
+    QCheckBox* towerEvolvedBox = nullptr;
+    QCheckBox* towerLegendsBox = nullptr;
+    QWidget* buildFacilityPage();
     QWidget* buildRaidPage();
     QWidget* buildItemPage();
     QWidget* buildDataPage();

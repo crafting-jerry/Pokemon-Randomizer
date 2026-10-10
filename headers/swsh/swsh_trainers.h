@@ -86,7 +86,7 @@ int trainerTheme(const Trainer& trainer); // Typ-ID oder -1
 
 // Namen aus den Spieltexten fuer Log und Oberflaeche
 struct GameTexts {
-    QStringList pokemon, moves, items, types, trainerNames, trainerClasses;
+    QStringList pokemon, moves, items, types, trainerNames, trainerClasses, abilities;
     void load(const QString& romfs);
     QString pokemonName(int species, int form) const;
     QString moveName(int id) const;

@@ -13,6 +13,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+#include <QRandomGenerator>
 
 #include "swsh_files.h"
 #include "swsh_encounters.h"
@@ -25,10 +26,24 @@ struct GameTexts;
 
 struct PokemonDataSettings {
     bool tradeEvolutions = false;   // Tausch-Entwicklungen ohne Tausch
-    bool anyEnabled() const { return tradeEvolutions; }
+    bool abilities = false;         // Faehigkeiten zufaellig
+    bool types = false;             // Typen zufaellig
+    bool stats = false;             // Basiswerte mischen (Summe bleibt)
+    bool levelMoves = false;        // Level-Attacken zufaellig
+    int tmMode = 0;                 // 0 Original, 1 Zufaellig, 2 Alle lernen alle TMs/TPs
+    bool keepFamilies = true;       // Entwicklungsreihen bleiben einheitlich (Faehigkeiten, Typen, Werte)
+    bool anyEnabled() const { return tradeEvolutions || abilities || types || stats || levelMoves || tmMode != 0; }
 };
 QJsonObject pokemonDataSettingsToJson(const PokemonDataSettings& s);
 void pokemonDataSettingsFromJson(const QJsonObject& json, PokemonDataSettings& s);
+
+// Faehigkeiten, Typen, Basiswerte, Level-Attacken, TM/TP. Veraendert files.personal und files.learnsets.
+struct PokemonDataResult {
+    bool personalChanged = false;
+    bool learnsetsChanged = false;
+    int abilities = 0, types = 0, stats = 0, learnsets = 0, tms = 0; // Anzahl geaenderter Eintraege
+};
+PokemonDataResult randomizePokemonData(GameFiles& files, const PokemonDataSettings& settings, quint64 seed);
 
 // --------------------------------------------------- Tausch-Entwicklungen
 
@@ -92,10 +107,39 @@ struct ItemResult {
 bool randomizeItems(const QString& romfs, const QByteArray& placement, GameFiles& work, QList<int>* changedTrainers,
                     const ItemSettings& settings, quint64 seed, ItemResult& result, QString* error);
 
+// ------------------------------------------- Dynamax-Abenteuer und Kampfturm
+
+struct FacilitySettings {
+    bool maxLair = false;           // Leih- und Gegner-Pokemon in der Dyna-Hoehle
+    bool maxLairLegends = false;    // Legendaere am Ende der Hoehle (bleiben legendaer)
+    bool tower = false;             // Teams im Kampfturm
+    bool towerFullyEvolved = true;  // nur voll entwickelte Pokemon
+    bool towerLegendaries = false;
+    bool anyEnabled() const { return maxLair || maxLairLegends || tower; }
+};
+QJsonObject facilitySettingsToJson(const FacilitySettings& s);
+void facilitySettingsFromJson(const QJsonObject& json, FacilitySettings& s);
+
+struct FacilityResult {
+    QList<StarterChoice> lairPokemon;   // neue Leih-/Gegner-Pokemon (form + 1000 = Gigadynamax)
+    QList<StarterChoice> lairLegends;
+    QList<StarterChoice> towerPokemon;
+    QByteArray lair;                    // underground_exploration_poke.bin (leer = unveraendert)
+    QByteArray tower;                   // battle_tower_poke_table.bin
+};
+bool randomizeFacilities(const QString& romfs, const GameFiles& files, const FacilitySettings& settings, quint64 seed,
+                         FacilityResult& result, QString* error);
+bool writeFacilities(const QString& outRomfs, const FacilityResult& result);
+
+// Zufaelliges Kampf-Item (Ueberreste, Leben-Orb, Wahlschal ...)
+int randomBattleItem(QRandomGenerator& rng);
+
 // ------------------------------------------------------------ Spoiler-Log
 
 QList<SpoilerSection> extrasSpoiler(const QList<EvolutionChange>& evolutions, const RaidResult& raids,
                                     const ItemResult& items, const GameTexts& texts, Version version);
+QList<SpoilerSection> dataSpoiler(const PokemonDataResult& data, const FacilityResult& facilities, const GameFiles& files,
+                                  const GameTexts& texts);
 
 } // namespace swsh
 

@@ -14,11 +14,23 @@ namespace swsh {
 QJsonObject pokemonDataSettingsToJson(const PokemonDataSettings& s) {
     QJsonObject j;
     j["tradeEvolutions"] = s.tradeEvolutions;
+    j["abilities"] = s.abilities;
+    j["types"] = s.types;
+    j["stats"] = s.stats;
+    j["levelMoves"] = s.levelMoves;
+    j["tmMode"] = s.tmMode;
+    j["keepFamilies"] = s.keepFamilies;
     return j;
 }
 
 void pokemonDataSettingsFromJson(const QJsonObject& j, PokemonDataSettings& s) {
     s.tradeEvolutions = j["tradeEvolutions"].toBool(s.tradeEvolutions);
+    s.abilities = j["abilities"].toBool(s.abilities);
+    s.types = j["types"].toBool(s.types);
+    s.stats = j["stats"].toBool(s.stats);
+    s.levelMoves = j["levelMoves"].toBool(s.levelMoves);
+    s.tmMode = qBound(0, j["tmMode"].toInt(s.tmMode), 2);
+    s.keepFamilies = j["keepFamilies"].toBool(s.keepFamilies);
 }
 
 // ======================================================== Tausch-Entwicklungen
@@ -375,6 +387,14 @@ const QList<int> kHeldItems = {
     219, 541, 542, 1120, 1118, 1119, 1121, 1123, 155, 230, 276,
     237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 248, 249, 250, 251 // Typ-verstaerkende Items
 };
+
+} // namespace
+
+int randomBattleItem(QRandomGenerator& rng) {
+    return kHeldItems[static_cast<int>(rng.bounded(static_cast<int>(kHeldItems.size())))];
+}
+
+namespace {
 
 // Items, die in Shops immer bleiben (Baelle, Traenke, Heiler, Schutz)
 const QSet<int> kKeepInShops = {2, 3, 4, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 76, 77, 79};
