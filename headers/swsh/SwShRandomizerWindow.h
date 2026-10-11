@@ -24,6 +24,7 @@
 #include "swsh_wild.h"
 #include "swsh_extras.h"
 #include <QComboBox>
+#include <QJsonObject>
 
 class SwShTrainerEditor;
 namespace modernui { class SegmentedControl; }
@@ -68,6 +69,19 @@ private:
     // Allgemein
     QLineEdit* seedEdit = nullptr;
     QCheckBox* spoilerLog = nullptr;
+
+    // Ausgabe direkt in den Mod-Ordner
+    QCheckBox* modDirect = nullptr;
+    QLineEdit* modFolderEdit = nullptr;
+    QWidget* modRow = nullptr;
+    void findEmulator();
+    bool copyToModFolder(const QString& output, QString* error) const;
+
+    // Vorlagen (alle Einstellungen als Datei)
+    QJsonObject settingsJson() const;
+    void applySettingsJson(const QJsonObject& json);
+    void saveTemplate();
+    void loadTemplate();
 
     // Statusleiste
     QLabel* activeInfo = nullptr;

@@ -58,6 +58,9 @@ QByteArray readFile(const QString& path, bool* ok = nullptr);
 // Index = Zeile, z. B. monsname -> Nationaldex, wazaname -> Attacken-ID, trname -> Trainer-Index.
 QStringList readMessage(const QString& romfs, const QString& name);
 QStringList decodeMessage(const QByteArray& data);
+// Roh-Zeilen (entschluesselte UTF-16-Zeichen inkl. Steuerzeichen) lesen und wieder schreiben
+QList<QVector<quint16>> decodeMessageRaw(const QByteArray& data);
+QByteArray encodeMessage(const QList<QVector<quint16>>& lines, const QByteArray& original = QByteArray());
 bool writeFile(const QString& path, const QByteArray& data);
 
 // -------------------------------------------------- FlatBuffer-Archive

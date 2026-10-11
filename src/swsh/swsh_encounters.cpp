@@ -417,7 +417,18 @@ bool randomizeEncounters(const QString& romfs, const GameFiles& files, const Enc
             if (old.species <= 0) continue;
             auto filter = [&](const Mon& m) { return s.legendaries || !isLegendary(m.species); };
             Mon m;
-            if (!picker.pick(rng, filter, s.similarStrength ? picker.bst(old.species, old.form) : 0, used, m)) continue;
+            // Tausch 8 und 9 (beide Smogmog) teilen sich denselben Dialog -> gleiches neues Pokemon
+            const EncounterChange* twin = nullptr;
+            if (i == 9) {
+                for (const EncounterChange& c : result.changes) {
+                    if (c.category == 4 && c.index == 8) twin = &c;
+                }
+            }
+            if (twin) {
+                m = Mon{twin->newSpecies, twin->newForm};
+            } else if (!picker.pick(rng, filter, s.similarStrength ? picker.bst(old.species, old.form) : 0, used, m)) {
+                continue;
+            }
             used.insert(m.species);
             t.set(trade::Species, m.species);
             t.set(trade::Form, m.form);
@@ -431,6 +442,112 @@ bool randomizeEncounters(const QString& romfs, const GameFiles& files, const Enc
         result.trades = writeFlatArchive(trades, trade::kSizes);
     }
     return true;
+}
+
+// ------------------------------------------------------- Tausch-Dialoge
+
+namespace {
+
+QVector<quint16> toChars(const QString& text) {
+    QVector<quint16> out;
+    for (QChar c : text) out.append(c.unicode());
+    return out;
+}
+
+bool isLetter(quint16 c) { return QChar(c).isLetterOrNumber(); }
+
+// Ersetzt ganze Woerter im Text einer Zeile, Variablen ([0x10, Laenge, ...]) bleiben unberuehrt.
+// onlyAfterMein: nur Vorkommen direkt nach "mein " bzw. "mein\n" (das eigene Pokemon des Tauschpartners).
+void replaceWord(QVector<quint16>& line, const QString& oldWord, const QString& newWord, bool onlyAfterMein) {
+    const QVector<quint16> from = toChars(oldWord), to = toChars(newWord);
+    const QVector<quint16> mein = toChars("mein");
+    QVector<quint16> out;
+    int i = 0;
+    while (i < line.size()) {
+        const quint16 c = line[i];
+        if (c == 0x10 && i + 1 < line.size()) {
+            const int n = 2 + line[i + 1];
+            for (int k = 0; k < n && i < line.size(); k++) out.append(line[i++]);
+            continue;
+        }
+        bool match = i + from.size() <= line.size() && !from.isEmpty();
+        for (int k = 0; match && k < from.size(); k++) match = line[i + k] == from[k];
+        if (match) {
+            const quint16 before = i > 0 ? line[i - 1] : 0;
+            const quint16 after = i + from.size() < line.size() ? line[i + from.size()] : 0;
+            if (isLetter(before) || isLetter(after) || before == '-') match = false;
+        }
+        if (match && onlyAfterMein) {
+            bool ok = i >= 5 && (line[i - 1] == ' ' || line[i - 1] == '\n');
+            for (int k = 0; ok && k < 4; k++) ok = line[i - 5 + k] == mein[k];
+            match = ok;
+        }
+        if (match) {
+            out += to;
+            i += from.size();
+        } else {
+            out.append(line[i++]);
+        }
+    }
+    line = out;
+}
+
+} // namespace
+
+QString dialogName(const QStringList& names, int species, int form) {
+    static const QSet<int> alola = {19, 20, 26, 27, 28, 37, 38, 50, 51, 53, 74, 75, 76, 88, 89, 103, 105};
+    static const QSet<int> galar = {77, 78, 79, 83, 110, 122, 144, 145, 146, 199, 222, 263, 264, 554, 562, 618};
+    const QString name = species < names.size() && !names[species].isEmpty() ? names[species] : QString("#%1").arg(species);
+    if (species == 52 && form == 1) return "Alola-" + name;
+    if (species == 52 && form == 2) return "Galar-" + name;
+    if ((species == 80 || species == 555) && form == 2) return "Galar-" + name;
+    if (form == 1 && alola.contains(species)) return "Alola-" + name;
+    if (form == 1 && galar.contains(species)) return "Galar-" + name;
+    return name;
+}
+
+QByteArray buildTradeTexts(const QByteArray& original, const QList<EncounterChange>& changes, const QStringList& names) {
+    QList<QVector<quint16>> lines = decodeMessageRaw(original);
+    if (lines.size() < 153) return QByteArray(); // unbekannter Aufbau -> Datei bleibt original
+    bool changed = false;
+    for (const EncounterChange& c : changes) {
+        if (c.category != 4) continue;
+        const QString oldName = dialogName(names, c.oldSpecies, 0);
+        const QString newName = dialogName(names, c.newSpecies, c.newForm);
+        if (c.index >= 0 && c.index <= 11) {
+            // Pokemon aus anderen Regionen: letzter Satz der Frage + Namenszeile
+            static const int question[12] = {127, 128, 129, 130, 131, 132, 133, 134, 135, 135, 136, 137};
+            static const int nameLine[12] = {142, 143, 144, 145, 146, 147, 148, 149, 150, 150, 151, 152};
+            QVector<quint16>& q = lines[question[c.index]];
+            int cut = -1;
+            for (int i = 0; i < q.size(); i++) {
+                if (q[i] == 0x10 && i + 1 < q.size()) {
+                    cut = i + 2 + q[i + 1];
+                    i = cut - 1;
+                }
+            }
+            if (cut > 0 && cut < q.size() && q[cut] == '\n') cut++; // Zeilenumbruch nach dem Seitenwechsel behalten
+            if (cut > 0 && cut <= q.size()) {
+                const bool terminated = !q.isEmpty() && q.last() == 0;
+                q.resize(cut);
+                q += toChars("Wenn ja, würdest du es gegen mein\n" + newName + " tauschen?");
+                if (terminated) q.append(0);
+            }
+            QVector<quint16>& n = lines[nameLine[c.index]];
+            const bool terminated = !n.isEmpty() && n.last() == 0;
+            n = toChars(newName);
+            if (terminated) n.append(0);
+            changed = true;
+        } else if (c.index >= 12 && c.index <= 22) {
+            const int first = 8 * (c.index - 12);
+            const bool sameAsRequired = c.oldSpecies == c.requiredSpecies;
+            for (int l = first; l < first + 8 && l < lines.size(); l++) {
+                replaceWord(lines[l], oldName, newName, sameAsRequired);
+            }
+            changed = true;
+        }
+    }
+    return changed ? encodeMessage(lines, original) : QByteArray();
 }
 
 bool writeEncounters(const QString& outRomfs, const EncounterResult& result) {

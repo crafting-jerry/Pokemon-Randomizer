@@ -24,6 +24,9 @@
 #include <memory>
 #include <vector>
 #include <QLineEdit>
+#include <QInputDialog>
+#include <QJsonParseError>
+#include <QStandardPaths>
 
 using namespace modernui;
 
@@ -267,7 +270,47 @@ QWidget* SwShRandomizerWindow::buildStartPage() {
     output->body()->addWidget(mutedLabel(
         "Die Ergebnisse landen im Ordner Randomizers-Output → Schwert-Schild → Randomizer-1. Dort liegt ein Ordner "
         "„romfs“ mit nur den geänderten Dateien. Für Emulatoren kopierst du ihn in einen eigenen Mod-Ordner des "
-        "Spiels, für die Switch nach atmosphere/contents/<Title-ID>/.", output));
+        "Spiels (oder lässt ihn unten direkt dorthin schreiben), für die Switch nach atmosphere/contents/<Title-ID>/.", output));
+    // Direkt in den Mod-Ordner
+    modDirect = new QCheckBox("Direkt in den Mod-Ordner des Emulators schreiben", output);
+    output->body()->addLayout(rowWithInfo(modDirect,
+        "Nach dem Randomisieren wird der Ordner „romfs“ zusätzlich direkt in den Mod-Ordner kopiert. Ein älterer "
+        "„romfs“-Ordner dort wird dabei ersetzt – du musst also nichts mehr von Hand kopieren.\n\n"
+        "„Emulator suchen“ findet Ryujinx und yuzu (sowie Ableger wie suyu, sudachi, citron und Eden) automatisch "
+        "und legt den passenden Ordner …/<Title-ID>/Randomizer an. Für eine echte Switch bleibt es beim Kopieren "
+        "nach atmosphere/contents/<Title-ID>/."));
+    modRow = new QWidget(output);
+    {
+        auto* row = new QHBoxLayout(modRow);
+        row->setContentsMargins(0, 0, 0, 0);
+        auto* caption = new QLabel("Mod-Ordner", modRow);
+        caption->setObjectName("pathCaption");
+        caption->setFixedWidth(90);
+        row->addWidget(caption);
+        modFolderEdit = new QLineEdit(modRow);
+        modFolderEdit->setPlaceholderText("z. B. …/Ryujinx/mods/contents/<Title-ID>/Randomizer");
+        row->addWidget(modFolderEdit, 1);
+        auto* browseButton = new QPushButton("Durchsuchen", modRow);
+        browseButton->setObjectName("secondary");
+        browseButton->setCursor(Qt::PointingHandCursor);
+        row->addWidget(browseButton);
+        auto* searchButton = new QPushButton("Emulator suchen", modRow);
+        searchButton->setObjectName("secondary");
+        searchButton->setCursor(Qt::PointingHandCursor);
+        row->addWidget(searchButton);
+        row->addWidget(new InfoButton(
+            "Der Ordner deines Mods, z. B. …/mods/contents/<Title-ID>/Randomizer (Ryujinx) oder "
+            "…/load/<Title-ID>/Randomizer (yuzu). Darin wird der Ordner „romfs“ angelegt bzw. ersetzt.", modRow));
+        connect(browseButton, &QPushButton::clicked, this, [this]() {
+            const QString start = modFolderEdit->text().trimmed().isEmpty() ? QDir::homePath() : modFolderEdit->text().trimmed();
+            const QString dir = QFileDialog::getExistingDirectory(this, "Mod-Ordner wählen", start);
+            if (!dir.isEmpty()) modFolderEdit->setText(QDir::toNativeSeparators(dir));
+        });
+        connect(searchButton, &QPushButton::clicked, this, [this]() { findEmulator(); });
+    }
+    output->body()->addWidget(modRow);
+    modRow->setEnabled(false);
+    connect(modDirect, &QCheckBox::toggled, modRow, &QWidget::setEnabled);
     {
         auto* row = new QHBoxLayout();
         auto* open = new QPushButton("Ausgabeordner öffnen", output);
@@ -283,6 +326,30 @@ QWidget* SwShRandomizerWindow::buildStartPage() {
         });
     }
     layout->addWidget(output);
+
+    // Vorlagen
+    auto* templates = new Card("Vorlagen", QString(), content);
+    templates->header()->addWidget(new InfoButton(
+        "Speichert alle Einstellungen (alle Seiten, Seed und Spoiler-Log) in einer Datei. So kannst du "
+        "Lieblings-Einstellungen wiederverwenden oder mit anderen teilen. Die Pfade zu deinem Dump und zum "
+        "Mod-Ordner werden nicht mitgespeichert.", templates));
+    templates->body()->addWidget(mutedLabel(
+        "Einstellungen als Vorlage speichern oder eine gespeicherte Vorlage laden.", templates));
+    {
+        auto* row = new QHBoxLayout();
+        auto* saveButton = new QPushButton("Einstellungen speichern …", templates);
+        auto* loadButton = new QPushButton("Einstellungen laden …", templates);
+        for (QPushButton* b : {saveButton, loadButton}) {
+            b->setObjectName("secondary");
+            b->setCursor(Qt::PointingHandCursor);
+            row->addWidget(b);
+        }
+        row->addStretch();
+        templates->body()->addLayout(row);
+        connect(saveButton, &QPushButton::clicked, this, [this]() { saveTemplate(); });
+        connect(loadButton, &QPushButton::clicked, this, [this]() { loadTemplate(); });
+    }
+    layout->addWidget(templates);
     layout->addStretch(); // freier Platz nicht auf die Karten verteilen
 
     return wrapPage("Start", "Spieldateien, allgemeine Einstellungen und Ausgabe.", content);
@@ -934,7 +1001,7 @@ QWidget* SwShRandomizerWindow::buildStartersPage() {
     tradesBox = new QCheckBox("Tauschpartner geben zufällige Pokémon", tradeCard);
     tradeCard->body()->addLayout(rowWithInfo(tradesBox,
         "Was du bei Tauschgeschäften bekommst, wird zufällig. Was du abgeben musst, bleibt gleich. Im Dialog nennt der "
-        "Tauschpartner weiterhin sein ursprüngliches Pokémon."));
+        "Tauschpartner sein neues Pokémon (deutsche Spielsprache)."));
     connect(tradesBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.trades = on; updateStatus(); });
     layout->addWidget(tradeCard);
 
@@ -1227,6 +1294,12 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
     if (!items.shops.isEmpty()) {
         written &= swsh::writeFile(romfsOut + "/bin/appli/shop/bin/shop_data.bin", items.shops);
     }
+    if (encounterSettings.trades) {
+        // Tauschpartner nennen im Dialog ihr neues Pokemon
+        const QString tradeText = "bin/message/German/script/field_trade.dat";
+        const QByteArray text = swsh::buildTradeTexts(swsh::readFile(romfs + "/" + tradeText), encounters.changes, texts.pokemon);
+        if (!text.isEmpty()) written &= swsh::writeFile(romfsOut + "/" + tradeText, text);
+    }
     if (!written) return fail("Die Dateien konnten nicht geschrieben werden:\n" + romfsOut);
 
     if (spoilerLog->isChecked()) {
@@ -1272,75 +1345,273 @@ void SwShRandomizerWindow::startRandomizer() {
         return;
     }
 
+    // Optional direkt in den Mod-Ordner des Emulators
+    bool copied = false;
+    QString copyError;
+    if (modDirect->isChecked()) {
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        copied = copyToModFolder(output, &copyError);
+        QApplication::restoreOverrideCursor();
+    }
+
     QMessageBox box(this);
     box.setWindowTitle("Fertig");
-    box.setIcon(QMessageBox::Information);
+    box.setIcon(copyError.isEmpty() ? QMessageBox::Information : QMessageBox::Warning);
     QString tid = swsh::titleId(check.version);
     box.setText("Der Randomizer ist fertig (Seed " + lastSeed + ").");
-    box.setInformativeText(
+    if (copied) {
+        box.setInformativeText("Der Ordner „romfs“ wurde direkt in deinen Mod-Ordner geschrieben:\n" +
+                               QDir::toNativeSeparators(modFolderEdit->text().trimmed()) +
+                               "\n\nStarte das Spiel im Emulator (neu) – der Mod ist sofort aktiv. Eine Kopie liegt "
+                               "außerdem in Randomizer-1.");
+    } else if (!copyError.isEmpty()) {
+        box.setInformativeText(copyError + "\n\nDie Dateien liegen trotzdem in Randomizer-1 und können von Hand "
+                               "kopiert werden.");
+    } else box.setInformativeText(
         "Kopiere den Ordner „romfs“ aus Randomizer-1 in einen Mod-Ordner deines Spiels:\n\n"
         "• Ryujinx: Rechtsklick auf das Spiel → „Mod-Verzeichnis öffnen“, dort einen Ordner (z. B. Randomizer) anlegen "
         "und „romfs“ hineinkopieren.\n"
         "• Switch (Atmosphère): atmosphere/contents/" + (tid.isEmpty() ? QString("<Title-ID>") : tid) + "/romfs");
+    QPushButton* openMod = copied ? box.addButton("Mod-Ordner öffnen", QMessageBox::ActionRole) : nullptr;
     QPushButton* openFolder = box.addButton("Ordner öffnen", QMessageBox::ActionRole);
     QPushButton* openSpoiler = spoilerLog->isChecked() ? box.addButton("Spoiler-Log öffnen", QMessageBox::ActionRole) : nullptr;
     box.addButton(QMessageBox::Close);
     box.exec();
-    if (box.clickedButton() == openFolder) {
+    if (openMod != nullptr && box.clickedButton() == openMod) {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QDir::fromNativeSeparators(modFolderEdit->text().trimmed())));
+    } else if (box.clickedButton() == openFolder) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(output));
     } else if (openSpoiler != nullptr && box.clickedButton() == openSpoiler) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(output + "/Spoiler-Log.html"));
     }
 }
 
+// ------------------------------------------------------------ Vorlagen
+
+void SwShRandomizerWindow::saveTemplate() {
+    const QString dir = QDir::current().filePath("Randomizers-Output/Vorlagen");
+    QDir().mkpath(dir);
+    QString path = QFileDialog::getSaveFileName(this, "Einstellungen speichern", dir + "/Schwert-Schild.json",
+                                                "Randomizer-Vorlage (*.json)");
+    if (path.isEmpty()) return;
+    if (!path.endsWith(".json", Qt::CaseInsensitive)) path += ".json";
+    QJsonObject json = settingsJson();
+    json["format"] = "Pokemon-Randomizer-Vorlage";
+    json["game"] = "SchwertSchild";
+    json["formatVersion"] = 1;
+    if (!swsh::writeFile(path, QJsonDocument(json).toJson(QJsonDocument::Indented))) {
+        QMessageBox::warning(this, "Einstellungen speichern", "Die Datei konnte nicht gespeichert werden:\n" + path);
+        return;
+    }
+    QMessageBox::information(this, "Einstellungen speichern", "Die Vorlage wurde gespeichert:\n" +
+                             QDir::toNativeSeparators(path));
+}
+
+void SwShRandomizerWindow::loadTemplate() {
+    const QString dir = QDir::current().filePath("Randomizers-Output/Vorlagen");
+    const QString path = QFileDialog::getOpenFileName(this, "Einstellungen laden", QDir(dir).exists() ? dir : QDir::currentPath(),
+                                                      "Randomizer-Vorlage (*.json)");
+    if (path.isEmpty()) return;
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(swsh::readFile(path), &parseError);
+    if (!doc.isObject()) {
+        QMessageBox::warning(this, "Einstellungen laden", "Die Datei ist keine gültige Vorlage:\n" + parseError.errorString());
+        return;
+    }
+    const QJsonObject json = doc.object();
+    if (json.value("game").toString() != "SchwertSchild") {
+        QMessageBox::warning(this, "Einstellungen laden",
+                             "Diese Vorlage gehört nicht zu Pokémon Schwert/Schild und kann hier nicht geladen werden.");
+        return;
+    }
+    applySettingsJson(json);
+    saveSettings();
+    QMessageBox::information(this, "Einstellungen laden", "Die Vorlage wurde geladen:\n" + QFileInfo(path).fileName());
+}
+
+// ------------------------------------------------------- Mod-Ordner
+
+void SwShRandomizerWindow::findEmulator() {
+    const QString tid = swsh::titleId(check.version);
+    if (tid.isEmpty()) {
+        QMessageBox::information(this, "Emulator suchen",
+                                 "Wähle zuerst oben deine Spieldateien aus – die Title-ID (Schwert oder Schild) wird "
+                                 "aus der ExeFS erkannt.");
+        return;
+    }
+    // Moegliche Datenordner der Emulatoren (Windows: %APPDATA%, Linux: ~/.config bzw. ~/.local/share)
+    QStringList roots;
+    const QString appData = qEnvironmentVariable("APPDATA");
+    if (!appData.isEmpty()) roots << appData;
+    roots << QDir::homePath() + "/.config" << QDir::homePath() + "/.local/share"
+          << QDir::homePath() + "/Library/Application Support";
+    struct Emulator { QString name, folder, sub; bool lower; };
+    const QList<Emulator> emulators = {
+        {"Ryujinx", "Ryujinx", "mods/contents", true},
+        {"yuzu", "yuzu", "load", false},
+        {"suyu", "suyu", "load", false},
+        {"sudachi", "sudachi", "load", false},
+        {"citron", "citron", "load", false},
+        {"Eden", "eden", "load", false},
+    };
+    QStringList labels, paths;
+    for (const QString& root : roots) {
+        for (const Emulator& e : emulators) {
+            const QString base = root + "/" + e.folder;
+            if (!QDir(base).exists() || paths.contains(QDir::cleanPath(base))) continue;
+            const QString path = QDir::cleanPath(base + "/" + e.sub + "/" + (e.lower ? tid.toLower() : tid) + "/Randomizer");
+            if (paths.contains(path)) continue;
+            labels << e.name + "  –  " + QDir::toNativeSeparators(path);
+            paths << path;
+        }
+    }
+    if (paths.isEmpty()) {
+        QMessageBox::information(this, "Emulator suchen",
+                                 "Es wurde kein Emulator gefunden (Ryujinx, yuzu, suyu, sudachi, citron, Eden).\n\n"
+                                 "Wähle den Mod-Ordner bitte über „Durchsuchen“ aus. In Ryujinx findest du ihn per "
+                                 "Rechtsklick auf das Spiel → „Mod-Verzeichnis öffnen“.");
+        return;
+    }
+    int choice = 0;
+    if (paths.size() > 1) {
+        bool ok = false;
+        const QString picked = QInputDialog::getItem(this, "Emulator suchen", "Mehrere Emulatoren gefunden:", labels, 0,
+                                                     false, &ok);
+        if (!ok) return;
+        choice = static_cast<int>(labels.indexOf(picked));
+    }
+    modFolderEdit->setText(QDir::toNativeSeparators(paths[choice]));
+    modDirect->setChecked(true);
+    saveSettings();
+}
+
+namespace {
+bool copyFolder(const QString& from, const QString& to) {
+    QDir source(from);
+    if (!QDir().mkpath(to)) return false;
+    for (const QFileInfo& entry : source.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) {
+        const QString target = to + "/" + entry.fileName();
+        if (entry.isDir()) {
+            if (!copyFolder(entry.absoluteFilePath(), target)) return false;
+        } else if (!QFile::copy(entry.absoluteFilePath(), target)) {
+            return false;
+        }
+    }
+    return true;
+}
+} // namespace
+
+bool SwShRandomizerWindow::copyToModFolder(const QString& output, QString* error) const {
+    const QString folder = QDir::cleanPath(QDir::fromNativeSeparators(modFolderEdit->text().trimmed()));
+    if (folder.isEmpty() || QDir(folder).isRoot()) {
+        if (error) *error = "Bitte gib einen Mod-Ordner an.";
+        return false;
+    }
+    const QString target = folder + "/romfs";
+    // Schutz: niemals den eigenen Dump ersetzen
+    const QString dump = QFileInfo(QDir::fromNativeSeparators(romfsEdit->text().trimmed())).canonicalFilePath();
+    const QString targetCanonical = QFileInfo(target).canonicalFilePath();
+    if (!dump.isEmpty() && !targetCanonical.isEmpty() &&
+        (dump == targetCanonical || dump.startsWith(targetCanonical + "/"))) {
+        if (error) *error = "Der Mod-Ordner zeigt auf deinen Dump. Bitte wähle einen eigenen Mod-Ordner.";
+        return false;
+    }
+    if (QDir(target).exists() && !QDir(target).removeRecursively()) {
+        if (error) *error = "Der alte Ordner „romfs“ im Mod-Ordner konnte nicht gelöscht werden:\n" +
+                            QDir::toNativeSeparators(target);
+        return false;
+    }
+    if (!copyFolder(output + "/romfs", target)) {
+        if (error) *error = "Die Dateien konnten nicht in den Mod-Ordner kopiert werden:\n" + QDir::toNativeSeparators(target);
+        return false;
+    }
+    return true;
+}
+
 // ------------------------------------------------------------ Speichern
+
+QJsonObject SwShRandomizerWindow::settingsJson() const {
+    QJsonObject json;
+    json["seed"] = seedEdit->text();
+    json["spoilerLog"] = spoilerLog->isChecked();
+    json["trainer"] = swsh::settingsToJson(trainerSettings);
+    json["encounters"] = swsh::encounterSettingsToJson(encounterSettings);
+    json["wild"] = swsh::wildSettingsToJson(wildSettings);
+    json["raids"] = swsh::raidSettingsToJson(raidSettings);
+    json["items"] = swsh::itemSettingsToJson(itemSettings);
+    json["pokemonData"] = swsh::pokemonDataSettingsToJson(dataSettings);
+    json["facilities"] = swsh::facilitySettingsToJson(facilitySettings);
+    return json;
+}
+
+void SwShRandomizerWindow::applySettingsJson(const QJsonObject& json) {
+    if (json.contains("seed")) seedEdit->setText(json.value("seed").toString());
+    if (json.contains("spoilerLog")) spoilerLog->setChecked(json.value("spoilerLog").toBool(true));
+    if (json.value("trainer").isObject()) {
+        trainerSettings = swsh::TrainerSettings();
+        swsh::settingsFromJson(json.value("trainer").toObject(), trainerSettings);
+        for (int g = 0; g < swsh::GroupCount; g++) {
+            ownInitialized[g] = trainerSettings.modes[g] == swsh::OwnSettings;
+        }
+    }
+    if (json.value("encounters").isObject()) {
+        encounterSettings = swsh::EncounterSettings();
+        swsh::encounterSettingsFromJson(json.value("encounters").toObject(), encounterSettings);
+    }
+    if (json.value("wild").isObject()) {
+        wildSettings = swsh::WildSettings();
+        swsh::wildSettingsFromJson(json.value("wild").toObject(), wildSettings);
+    }
+    if (json.value("raids").isObject()) {
+        raidSettings = swsh::RaidSettings();
+        swsh::raidSettingsFromJson(json.value("raids").toObject(), raidSettings);
+    }
+    if (json.value("items").isObject()) {
+        itemSettings = swsh::ItemSettings();
+        swsh::itemSettingsFromJson(json.value("items").toObject(), itemSettings);
+    }
+    if (json.value("pokemonData").isObject()) {
+        dataSettings = swsh::PokemonDataSettings();
+        swsh::pokemonDataSettingsFromJson(json.value("pokemonData").toObject(), dataSettings);
+    }
+    if (json.value("facilities").isObject()) {
+        facilitySettings = swsh::FacilitySettings();
+        swsh::facilitySettingsFromJson(json.value("facilities").toObject(), facilitySettings);
+    }
+    refreshTrainerPage();
+    refreshStartersPage();
+    refreshWildPage();
+    refreshExtraPages();
+    if (activeInfo) updateStatus();
+}
 
 void SwShRandomizerWindow::saveSettings() const {
     QSettings settings(kSettingsOrg, kSettingsApp);
     settings.setValue("RomFS", romfsEdit->text().trimmed());
     settings.setValue("ExeFS", exefsEdit->text().trimmed());
-    settings.setValue("Seed", seedEdit->text());
-    settings.setValue("SpoilerLog", spoilerLog->isChecked());
-    settings.setValue("Trainer", QString::fromUtf8(QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson(QJsonDocument::Compact)));
-    settings.setValue("Facilities", QString::fromUtf8(QJsonDocument(swsh::facilitySettingsToJson(facilitySettings)).toJson(QJsonDocument::Compact)));
-    settings.setValue("Raids", QString::fromUtf8(QJsonDocument(swsh::raidSettingsToJson(raidSettings)).toJson(QJsonDocument::Compact)));
-    settings.setValue("Items", QString::fromUtf8(QJsonDocument(swsh::itemSettingsToJson(itemSettings)).toJson(QJsonDocument::Compact)));
-    settings.setValue("PokemonData", QString::fromUtf8(QJsonDocument(swsh::pokemonDataSettingsToJson(dataSettings)).toJson(QJsonDocument::Compact)));
-    settings.setValue("Wild", QString::fromUtf8(QJsonDocument(swsh::wildSettingsToJson(wildSettings)).toJson(QJsonDocument::Compact)));
-    settings.setValue("Encounters", QString::fromUtf8(QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson(QJsonDocument::Compact)));
+    settings.setValue("ModFolder", modFolderEdit->text().trimmed());
+    settings.setValue("ModDirect", modDirect->isChecked());
+    settings.setValue("Settings", QString::fromUtf8(QJsonDocument(settingsJson()).toJson(QJsonDocument::Compact)));
 }
 
 void SwShRandomizerWindow::loadSettings() {
     QSettings settings(kSettingsOrg, kSettingsApp);
-    seedEdit->setText(settings.value("Seed").toString());
-    spoilerLog->setChecked(settings.value("SpoilerLog", true).toBool());
-    const QJsonDocument trainerJson = QJsonDocument::fromJson(settings.value("Trainer").toString().toUtf8());
-    if (trainerJson.isObject()) {
-        swsh::settingsFromJson(trainerJson.object(), trainerSettings);
-        for (int g = 0; g < swsh::GroupCount; g++) {
-            ownInitialized[g] = trainerSettings.modes[g] == swsh::OwnSettings;
+    QJsonObject json = QJsonDocument::fromJson(settings.value("Settings").toString().toUtf8()).object();
+    if (json.isEmpty()) {
+        // aeltere Speicherung: ein Eintrag je Seite
+        json["seed"] = settings.value("Seed").toString();
+        json["spoilerLog"] = settings.value("SpoilerLog", true).toBool();
+        const QList<QPair<QString, QString>> keys = {{"Trainer", "trainer"}, {"Encounters", "encounters"},
+            {"Wild", "wild"}, {"Raids", "raids"}, {"Items", "items"}, {"PokemonData", "pokemonData"},
+            {"Facilities", "facilities"}};
+        for (const auto& k : keys) {
+            const QJsonDocument doc = QJsonDocument::fromJson(settings.value(k.first).toString().toUtf8());
+            if (doc.isObject()) json[k.second] = doc.object();
         }
-        refreshTrainerPage();
     }
-    const QJsonDocument encounterJson = QJsonDocument::fromJson(settings.value("Encounters").toString().toUtf8());
-    if (encounterJson.isObject()) {
-        swsh::encounterSettingsFromJson(encounterJson.object(), encounterSettings);
-        refreshStartersPage();
-    }
-    const QJsonDocument wildJson = QJsonDocument::fromJson(settings.value("Wild").toString().toUtf8());
-    if (wildJson.isObject()) {
-        swsh::wildSettingsFromJson(wildJson.object(), wildSettings);
-        refreshWildPage();
-    }
-    const QJsonDocument raidJson = QJsonDocument::fromJson(settings.value("Raids").toString().toUtf8());
-    if (raidJson.isObject()) swsh::raidSettingsFromJson(raidJson.object(), raidSettings);
-    const QJsonDocument itemJson = QJsonDocument::fromJson(settings.value("Items").toString().toUtf8());
-    if (itemJson.isObject()) swsh::itemSettingsFromJson(itemJson.object(), itemSettings);
-    const QJsonDocument dataJson = QJsonDocument::fromJson(settings.value("PokemonData").toString().toUtf8());
-    if (dataJson.isObject()) swsh::pokemonDataSettingsFromJson(dataJson.object(), dataSettings);
-    const QJsonDocument facilityJson = QJsonDocument::fromJson(settings.value("Facilities").toString().toUtf8());
-    if (facilityJson.isObject()) swsh::facilitySettingsFromJson(facilityJson.object(), facilitySettings);
-    refreshExtraPages();
+    applySettingsJson(json);
+    modFolderEdit->setText(settings.value("ModFolder").toString());
+    modDirect->setChecked(settings.value("ModDirect", false).toBool());
     const QString romfs = settings.value("RomFS").toString();
     const QString exefs = settings.value("ExeFS").toString();
     if (romfs.isEmpty() && exefs.isEmpty()) {

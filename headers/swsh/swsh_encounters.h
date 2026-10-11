@@ -65,6 +65,10 @@ struct EncounterResult {
 // Randomisiert alles laut Einstellungen. Liest die Dateien aus romfs.
 bool randomizeEncounters(const QString& romfs, const GameFiles& files, const EncounterSettings& settings,
                          quint64 seed, EncounterResult& result, QString* error);
+// Deutsche Tausch-Dialoge (script/field_trade.dat) an die neuen Pokemon anpassen.
+// names: deutsche Pokemon-Namen. Leeres Ergebnis = nichts geaendert.
+QByteArray buildTradeTexts(const QByteArray& original, const QList<EncounterChange>& changes, const QStringList& names);
+QString dialogName(const QStringList& names, int species, int form);
 bool writeEncounters(const QString& outRomfs, const EncounterResult& result);
 
 // Alle (Art, Form), die als Starter waehlbar sind (im Spiel vorhanden)

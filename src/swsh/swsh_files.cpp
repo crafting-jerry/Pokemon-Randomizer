@@ -80,8 +80,8 @@ bool writeFile(const QString& path, const QByteArray& data) {
 
 // Textformat der Switch-Spiele (Gen 7/8): Zeilentabelle, jede Zeile mit
 // einem rollierenden 16-Bit-Schluessel verschluesselt.
-QStringList decodeMessage(const QByteArray& data) {
-    QStringList lines;
+QList<QVector<quint16>> decodeMessageRaw(const QByteArray& data) {
+    QList<QVector<quint16>> lines;
     if (data.size() < 0x14) {
         return lines;
     }
@@ -95,7 +95,6 @@ QStringList decodeMessage(const QByteArray& data) {
         }
         const int offset = sectionOffset + static_cast<qint32>(readU32(data, entry));
         const int length = readU16(data, entry + 4);
-
         QVector<quint16> chars;
         quint16 k = key;
         for (int j = 0; j < length && offset + j * 2 + 2 <= data.size(); j++) {
@@ -103,7 +102,49 @@ QStringList decodeMessage(const QByteArray& data) {
             k = static_cast<quint16>((k << 3) | (k >> 13));
         }
         key = static_cast<quint16>(key + 0x2983);
+        lines.append(chars);
+    }
+    return lines;
+}
 
+QByteArray encodeMessage(const QList<QVector<quint16>>& lines, const QByteArray& original) {
+    // Zeilen-Flags (z. B. Genus/Plural) aus dem Original uebernehmen
+    const int origCount = original.size() >= 0x10 ? readU16(original, 0x02) : 0;
+    const int origSection = origCount > 0 ? static_cast<int>(readU32(original, 0x0C)) : 0;
+    // Aufbau wie im Spiel: Kopf (0x10), Abschnittslaenge, Zeilentabelle, Zeilen (je auf 4 Byte ausgerichtet)
+    QByteArray section(4 + 8 * lines.size(), '\0');
+    quint16 key = 0x7C89;
+    for (int i = 0; i < lines.size(); i++) {
+        while (section.size() % 4) section.append('\0');
+        const int offset = section.size();
+        quint16 k = key;
+        for (quint16 c : lines[i]) {
+            const quint16 v = c ^ k;
+            section.append(static_cast<char>(v & 0xFF));
+            section.append(static_cast<char>(v >> 8));
+            k = static_cast<quint16>((k << 3) | (k >> 13));
+        }
+        key = static_cast<quint16>(key + 0x2983);
+        writeU32(section, 4 + 8 * i, static_cast<quint32>(offset));
+        writeU16(section, 4 + 8 * i + 4, static_cast<quint16>(lines[i].size()));
+        const int flagPos = origSection + 4 + 8 * i + 6;
+        writeU16(section, 4 + 8 * i + 6, (i < origCount && flagPos + 2 <= original.size()) ? readU16(original, flagPos) : 0);
+    }
+    while (section.size() % 4) section.append('\0');
+    writeU32(section, 0, static_cast<quint32>(section.size()));
+
+    QByteArray out(0x10, '\0');
+    writeU16(out, 0x00, 1);
+    writeU16(out, 0x02, static_cast<quint16>(lines.size()));
+    writeU32(out, 0x04, static_cast<quint32>(section.size()));
+    writeU32(out, 0x08, 0);
+    writeU32(out, 0x0C, 0x10);
+    return out + section;
+}
+
+QStringList decodeMessage(const QByteArray& data) {
+    QStringList lines;
+    for (const QVector<quint16>& chars : decodeMessageRaw(data)) {
         QString text;
         for (int j = 0; j < chars.size(); j++) {
             const quint16 c = chars[j];
