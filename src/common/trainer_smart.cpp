@@ -209,16 +209,22 @@ void TrainerSmartData::collectMovePool(qint64 k, int level, bool includeTMs, QSe
     }
     if (pokeInfo.contains(lookup)) {
         const PokeInfo& info = pokeInfo[lookup];
+        // Starke Attacken passend zum Level (fuer TMs und Erinnerungs-Attacken auf Level 1),
+        // damit fruehe Trainer nicht mit Hydropumpe oder Erdbeben auftauchen
+        const int maxPower = 40 + 2 * level;
         for (const auto& lm : info.levelMoves) {
             // Level 0 bzw. >= 250 sind Entwicklungsattacken
             if (lm.second <= level || lm.second == 0 || lm.second >= 250) {
+                // Level 1 bei entwickelten Pokemon = Attacken-Erinnerung (z. B. Erdbeben bei Moorabbel)
+                if (lm.second == 1 && level > 1) {
+                    const MoveInfo m = moves.value(lm.first);
+                    if (m.damaging && m.power > maxPower) continue;
+                }
                 pool.insert(lm.first);
             }
         }
         if (includeTMs) {
-            // TM-Attacken passend zum Level: starke Attacken und Statusattacken erst spaeter,
-            // damit fruehe Trainer nicht mit Hydropumpe oder Drachentanz auftauchen
-            const int maxPower = 40 + 2 * level;
+            // TM-Attacken: zusaetzlich Statusattacken erst ab Level 20
             for (int tm : info.tmMoves) {
                 const MoveInfo m = moves.value(tm);
                 if (m.damaging ? m.power <= maxPower : level >= 20) {
@@ -257,7 +263,10 @@ QList<int> TrainerSmartData::buildMovesetIds(int natdex, int form, int level, bo
     QList<int> setupMoves;
     QList<int> utilityMoves;
 
-    for (int id : pool) {
+    // Feste Reihenfolge: QSet ist je nach Programmstart anders sortiert (sonst ergibt derselbe Seed andere Movesets)
+    QList<int> poolSorted(pool.begin(), pool.end());
+    std::sort(poolSorted.begin(), poolSorted.end());
+    for (int id : poolSorted) {
         if (!moves.contains(id)) {
             continue;
         }

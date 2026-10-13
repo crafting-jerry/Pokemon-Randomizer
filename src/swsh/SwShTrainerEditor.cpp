@@ -25,6 +25,9 @@ const QString kInfoSmartMoves =
 const QString kInfoSmartTMs =
     "Starke Movesets dürfen auch Attacken enthalten, die das Pokémon nur per TM oder TP lernt. Starke "
     "Attacken gibt es erst auf höherem Level, Statusattacken ab Level 20.";
+const QString kInfoSmartTMsNoTR =
+    "Starke Movesets dürfen auch Attacken enthalten, die das Pokémon nur per TM lernt. Starke "
+    "Attacken gibt es erst auf höherem Level, Statusattacken ab Level 20.";
 const QString kInfoGigantamax =
     "Pokémon, die im Original gigadynamaximieren (z. B. die Asse der Arenaleiter), werden durch ein Pokémon mit "
     "Gigadynamax-Form ersetzt – passend zum Typ der Arena, wenn möglich.";
@@ -38,7 +41,8 @@ const QString kInfoShinies =
     "Trainer-Pokémon können schillernd sein (etwa jedes zweite).";
 } // namespace
 
-SwShTrainerEditor::SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* parent) : QWidget(parent), o(options) {
+SwShTrainerEditor::SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* parent, bool galar)
+    : QWidget(parent), o(options) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
@@ -94,12 +98,12 @@ SwShTrainerEditor::SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* par
         auto* row = new QHBoxLayout();
         row->setSpacing(6);
         smartMoves = new QCheckBox("Starke Movesets", this);
-        smartTMs = new QCheckBox("TM- und TP-Attacken erlauben", this);
+        smartTMs = new QCheckBox(galar ? "TM- und TP-Attacken erlauben" : "TM-Attacken erlauben", this);
         row->addWidget(smartMoves);
         row->addWidget(new InfoButton(kInfoSmartMoves, this));
         row->addSpacing(18);
         row->addWidget(smartTMs);
-        row->addWidget(new InfoButton(kInfoSmartTMs, this));
+        row->addWidget(new InfoButton(galar ? kInfoSmartTMs : kInfoSmartTMsNoTR, this));
         row->addStretch();
         layout->addLayout(row);
         connect(smartMoves, &QCheckBox::toggled, this, [this](bool checked) {
@@ -113,7 +117,12 @@ SwShTrainerEditor::SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* par
         });
     }
 
-    gigantamax = addCheck(layout, "Gigadynamax-Asse behalten", kInfoGigantamax, &o->keepGigantamax);
+    if (galar) {
+        gigantamax = addCheck(layout, "Gigadynamax-Asse behalten", kInfoGigantamax, &o->keepGigantamax);
+    } else {
+        gigantamax = new QCheckBox(this); // nicht sichtbar, nur damit refresh() einheitlich bleibt
+        gigantamax->hide();
+    }
 
     auto* more = new Collapsible("Mehr Optionen: Legendäre, Kluge KI, perfekte DVs, Schillernde", false, this);
     layout->addWidget(more);

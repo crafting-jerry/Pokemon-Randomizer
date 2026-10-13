@@ -16,8 +16,9 @@
 class SwShTrainerEditor : public QWidget {
     Q_OBJECT
 public:
-    // options muss so lange leben wie der Editor
-    explicit SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* parent = nullptr);
+    // options muss so lange leben wie der Editor.
+    // galar = false: ohne Gigadynamax-Option und ohne TPs (z. B. fuer Strahlender Diamant/Leuchtende Perle).
+    explicit SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* parent = nullptr, bool galar = true);
     void refresh();
 
 signals:

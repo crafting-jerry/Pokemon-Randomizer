@@ -666,7 +666,7 @@ QList<SpoilerSection> extrasSpoiler(const QList<EvolutionChange>& evolutions, co
             for (auto it = items.placedItems.constBegin(); it != items.placedItems.constEnd(); ++it) {
                 sorted.append({it.value(), it.key()});
             }
-            std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first != b.first ? a.first > b.first : a.second < b.second; });
             QString rows;
             for (const auto& entry : sorted) {
                 const QString name = texts.itemName(entry.second);
