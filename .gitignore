@@ -25,3 +25,4 @@ randomizer-shiny/
 .DS_store
 build/
 *.pro.user
+Export/

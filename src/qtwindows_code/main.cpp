@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QDir>
 #include <QScreen>
 #include <QMutex>
 #include <QSettings>
@@ -45,6 +46,12 @@ void customMessageHandler(QtMsgType type, const QMessageLogContext &context, con
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
+
+#ifdef Q_OS_WIN
+    // Alle Daten (SV_FLATBUFFERS, assets, thirdparty, logs) liegen neben der .exe. Arbeitsordner auf den
+    // Programmordner setzen, damit der Randomizer auch per Verknuepfung oder aus einem anderen Ordner startet.
+    QDir::setCurrent(QCoreApplication::applicationDirPath());
+#endif
 
     // Set application-wide icon
     app.setWindowIcon(QIcon("assets/icons/main.ico"));
