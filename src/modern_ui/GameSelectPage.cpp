@@ -60,8 +60,8 @@ QList<GameSelectPage::GameInfo> GameSelectPage::games() {
          "assets/Supported Games/image4.jpeg", true},
         {2, "Pokémon Strahlender Diamant und Leuchtende Perle",
          "Generation 8 · Remake von Diamant und Perl",
-         "Benötigt einen eigenen Dump (getestet mit Update 1.3.0) · Trainer mit Typ-Arenen und Top Vier · "
-         "weitere Bereiche folgen",
+         "Benötigt einen eigenen Dump (getestet mit Update 1.3.0) · Trainer mit Typ-Arenen und Top Vier, Starter, "
+         "Geschenke, Legendäre und Tausch · weitere Bereiche folgen",
          "assets/Supported Games/image3.jpeg", true, true},
     };
 }

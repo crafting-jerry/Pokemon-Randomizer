@@ -16,6 +16,7 @@
 #include <QPair>
 #include <QString>
 #include <QStringList>
+#include <functional>
 
 #include "bdsp_unity.h"
 #include "../common/game_data.h"
@@ -58,6 +59,10 @@ bool writeFile(const QString& path, const QByteArray& data);
 class BundleData {
 public:
     bool load(const QString& romfs, const QString& relPath, const QStringList& tables, QString* error);
+    // Laedt alle MonoBehaviour-Objekte, fuer die keep() true liefert (z. B. alle Skripte)
+    bool loadWhere(const QString& romfs, const QString& relPath, const std::function<bool(const UValue&)>& keep,
+                   QString* error);
+    QStringList tableNames() const { QStringList n = values.keys(); n.sort(); return n; } // feste Reihenfolge
     UValue& table(const QString& name) { return values[name]; }
     const UValue& table(const QString& name) const;
     bool has(const QString& name) const { return values.contains(name); }
@@ -179,6 +184,7 @@ struct TrainerMon {
     int seal = -1;
     int ivs[6] = {0, 0, 0, 0, 0, 0};
     int evs[6] = {0, 0, 0, 0, 0, 0};
+    bool locked = false; // vom Trainer-Randomizer nicht aendern (z. B. Starter des Rivalen)
 };
 
 struct Trainer {
@@ -229,6 +235,7 @@ public:
     bool personalChanged = false;
     bool learnsetsChanged = false;
     bool evolutionsChanged = false;
+    bool tradesChanged = false; // LocalKoukanData (Tausch) in masterdatas
 
     // Schreibt alle geaenderten Bundles nach outRomfs
     bool save(const QString& outRomfs, QString* error);

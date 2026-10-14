@@ -263,8 +263,18 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
         // --- Pokemon waehlen ---
         QSet<int> usedSpecies;
         const bool levelRules = opt->fullyEvolvedLevel > 0 || opt->levelAppropriateEvos;
+        for (const TrainerMon& mon : trainer.team) {
+            if (mon.locked) usedSpecies.insert(mon.species);
+        }
         for (TrainerMon& mon : trainer.team) {
             const int level = mon.level;
+            if (mon.locked) {
+                // Fest vorgegeben (z. B. Starter des Rivalen): nur die allgemeinen Optionen anwenden
+                if (opt->perfectIVs) {
+                    for (int& iv : mon.ivs) iv = 31;
+                }
+                continue;
+            }
             auto pickFrom = [&](const QList<Candidate>& list, bool applyLevel, bool noDuplicates, Candidate& out) {
                 QHash<int, QList<int>> bySpecies;
                 QList<int> order;

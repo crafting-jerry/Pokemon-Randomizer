@@ -3,6 +3,7 @@
 #include "headers/swsh/SwShTrainerEditor.h"
 
 #include <QApplication>
+#include <QCompleter>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -21,6 +22,8 @@
 #include <QStyle>
 #include <QTextStream>
 #include <QUrl>
+#include <memory>
+#include <vector>
 
 using namespace modernui;
 
@@ -49,9 +52,7 @@ BdspRandomizerWindow::BdspRandomizerWindow(QWidget* parent) : QWidget(parent) {
     pages = new QStackedWidget(this);
     pages->addWidget(buildStartPage());
     pages->addWidget(buildTrainerPage());
-    pages->addWidget(buildComingSoonPage("Starter & Geschenke", "Starter, geschenkte Pokémon, statische Begegnungen und Tausch.",
-        "Dieser Bereich folgt im nächsten Schritt: zufällige Starter (auch nach Wunsch), Geschenke wie Evoli oder "
-        "Togepi-Ei, Legendäre und andere statische Begegnungen sowie Tauschpartner."));
+    pages->addWidget(buildStartersPage());
     pages->addWidget(buildComingSoonPage("Wilde Pokémon", "Gras, Höhlen, Wasser, Angeln, Honigbäume und der Große Sumpf.",
         "Dieser Bereich folgt in einem der nächsten Schritte."));
     pages->addWidget(buildComingSoonPage("Items", "Items auf dem Boden, versteckte Items und Läden.",
@@ -261,12 +262,13 @@ QWidget* BdspRandomizerWindow::buildStartPage() {
     auto* output = new Card("Ausgabe", QString(), content);
     output->body()->addWidget(mutedLabel(
         "Die Ergebnisse landen im Ordner Randomizers-Output → Diamant-Perle → Randomizer-1. Dort liegt ein Ordner "
-        "„romfs“ mit nur den geänderten Dateien. Für Emulatoren kopierst du ihn in einen eigenen Mod-Ordner des "
-        "Spiels (oder lässt ihn unten direkt dorthin schreiben), für die Switch nach atmosphere/contents/<Title-ID>/.", output));
+        "„romfs“ mit nur den geänderten Dateien (bei neuen Startern oder Evoli zusätzlich „exefs“). Für Emulatoren "
+        "kopierst du beides in einen eigenen Mod-Ordner des Spiels (oder lässt es unten direkt dorthin schreiben), "
+        "für die Switch nach atmosphere/contents/<Title-ID>/.", output));
     modDirect = new QCheckBox("Direkt in den Mod-Ordner des Emulators schreiben", output);
     output->body()->addLayout(rowWithInfo(modDirect,
-        "Nach dem Randomisieren wird der Ordner „romfs“ zusätzlich direkt in den Mod-Ordner kopiert. Ein älterer "
-        "„romfs“-Ordner dort wird dabei ersetzt – du musst also nichts mehr von Hand kopieren.\n\n"
+        "Nach dem Randomisieren werden die Ordner „romfs“ und „exefs“ zusätzlich direkt in den Mod-Ordner kopiert. "
+        "Ältere Ordner dort werden dabei ersetzt – du musst also nichts mehr von Hand kopieren.\n\n"
         "„Emulator suchen“ findet Ryujinx und yuzu (sowie Ableger wie suyu, sudachi, citron und Eden) automatisch "
         "und legt den passenden Ordner …/<Title-ID>/Randomizer an. Für eine echte Switch bleibt es beim Kopieren "
         "nach atmosphere/contents/<Title-ID>/."));
@@ -446,6 +448,8 @@ void BdspRandomizerWindow::checkPaths() {
         l->style()->polish(l);
     }
     showMessages();
+    fillStarterCombos();
+    refreshStartersPage();
     updateStatus();
     saveSettings();
 }
@@ -473,6 +477,10 @@ void BdspRandomizerWindow::showMessages() {
 QStringList BdspRandomizerWindow::activeAreas() const {
     QStringList areas;
     if (trainerSettings.enabled) areas << "Trainer";
+    if (encounterSettings.starterMode != 0) areas << "Starter";
+    if (encounterSettings.gifts) areas << "Geschenke";
+    if (encounterSettings.statics) areas << "Begegnungen";
+    if (encounterSettings.trades) areas << "Tausch";
     return areas;
 }
 
@@ -496,11 +504,204 @@ void BdspRandomizerWindow::updateStatus() {
 
 void BdspRandomizerWindow::refreshAllPages() {
     refreshTrainerPage();
+    refreshStartersPage();
     updateStatus();
 }
 
 void BdspRandomizerWindow::showPage(int index) {
     nav->setCurrentRow(index);
+}
+
+// ---------------------------------------------------------- Starter & Geschenke
+
+QWidget* BdspRandomizerWindow::buildStartersPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    // --- Starter ---
+    auto* starterCard = new Card("Starter", QString(), content);
+    {
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("Starter-Pokémon", starterCard));
+        row->addWidget(new InfoButton("Original: Chelast, Panflam und Plinfa.\n"
+                                      "Zufällig: drei zufällige Pokémon.\n"
+                                      "Wunsch: du legst die drei Starter selbst fest.\n\n"
+                                      "Im Koffer von Professor Eibe liegen danach die neuen Starter. Dein Rivale Perl "
+                                      "und Lucius/Lucia bekommen passend dazu die neuen Starter in ihre Teams.\n"
+                                      "Die Starter stehen im Programmcode des Spiels. Dafür wird zusätzlich ein kleiner "
+                                      "Patch im Ordner „exefs“ erstellt (wird beim Mod-Ordner automatisch mitkopiert).",
+                                      starterCard));
+        row->addStretch();
+        starterMode = new SegmentedControl({"Original", "Zufällig", "Wunsch"}, starterCard);
+        row->addWidget(starterMode);
+        starterCard->body()->addLayout(row);
+        connect(starterMode, &SegmentedControl::changed, this, [this](int mode) {
+            encounterSettings.starterMode = mode;
+            starterRandomBox->setVisible(mode == 1);
+            starterWishBox->setVisible(mode == 2);
+            updateStatus();
+        });
+    }
+
+    starterRandomBox = new QWidget(starterCard);
+    starterRandomBox->setObjectName("subEditor");
+    starterRandomBox->setAttribute(Qt::WA_StyledBackground, true);
+    {
+        auto* box = new QVBoxLayout(starterRandomBox);
+        box->setContentsMargins(14, 12, 14, 12);
+        box->setSpacing(8);
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("Typen", starterRandomBox));
+        row->addWidget(new InfoButton("Beliebig: keine Regel.\n"
+                                      "Verschieden: die drei Starter teilen sich keinen Typ.\n"
+                                      "Pflanze/Feuer/Wasser: wie im Original je ein Pflanzen-, Feuer- und Wasser-Pokémon.",
+                                      starterRandomBox));
+        row->addStretch();
+        starterTypes = new SegmentedControl({"Beliebig", "Verschieden", "Pflanze/Feuer/Wasser"}, starterRandomBox);
+        row->addWidget(starterTypes);
+        box->addLayout(row);
+        connect(starterTypes, &SegmentedControl::changed, this, [this](int v) { encounterSettings.starterTypes = v; });
+        starterStages = new QCheckBox("Nur Pokémon mit zwei Entwicklungen", starterRandomBox);
+        box->addLayout(rowWithInfo(starterStages,
+            "Wie echte Starter: Basis-Pokémon, die sich zweimal entwickeln (z. B. Glumanda → Glutexo → Glurak)."));
+        connect(starterStages, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.starterThreeStages = on; });
+        starterStrength = new QCheckBox("Ähnlich stark wie die Original-Starter", starterRandomBox);
+        box->addLayout(rowWithInfo(starterStrength,
+            "Optional: Die neuen Starter haben ungefähr dieselbe Basiswerte-Summe wie Chelast, Panflam und Plinfa. "
+            "Ohne diese Option kann jedes passende Pokémon Starter werden."));
+        connect(starterStrength, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.starterSimilarStrength = on; });
+    }
+    starterCard->body()->addWidget(starterRandomBox);
+
+    starterWishBox = new QWidget(starterCard);
+    starterWishBox->setObjectName("subEditor");
+    starterWishBox->setAttribute(Qt::WA_StyledBackground, true);
+    {
+        auto* box = new QVBoxLayout(starterWishBox);
+        box->setContentsMargins(14, 12, 14, 12);
+        box->setSpacing(8);
+        const QStringList labels = {"Statt Chelast", "Statt Panflam", "Statt Plinfa"};
+        for (int i = 0; i < 3; i++) {
+            auto* row = new QHBoxLayout();
+            auto* label = new QLabel(labels[i], starterWishBox);
+            label->setFixedWidth(120);
+            row->addWidget(label);
+            wishCombos[i] = new QComboBox(starterWishBox);
+            wishCombos[i]->setEditable(true);
+            wishCombos[i]->setInsertPolicy(QComboBox::NoInsert);
+            wishCombos[i]->setMinimumWidth(280);
+            wishCombos[i]->lineEdit()->setPlaceholderText("Pokémon suchen …");
+            row->addWidget(wishCombos[i]);
+            row->addStretch();
+            box->addLayout(row);
+            connect(wishCombos[i], QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, i](int index) {
+                const int code = index >= 0 ? wishCombos[i]->itemData(index).toInt() : 0;
+                encounterSettings.wished[i] = {code, 0};
+            });
+        }
+        box->addWidget(mutedLabel("Leer gelassene Felder behalten den Original-Starter. Tippe einen Namen ein, um zu suchen.",
+                                  starterWishBox));
+    }
+    starterCard->body()->addWidget(starterWishBox);
+    layout->addWidget(starterCard);
+
+    // --- Geschenke ---
+    auto* giftCard = new Card("Geschenkte Pokémon", QString(), content);
+    giftsBox = new QCheckBox("Geschenkte Pokémon randomisieren", giftCard);
+    giftCard->body()->addLayout(rowWithInfo(giftsBox,
+        "Evoli von Bebe in Herzhofen sowie die Eier vom Wanderer in Herzhofen (Wonneira) und von Urs auf der "
+        "Eiseninsel (Riolu). Aus den Eiern schlüpfen nur Basis-Pokémon. Evoli steht im Programmcode und kommt "
+        "deshalb mit in den Patch im Ordner „exefs“."));
+    connect(giftsBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.gifts = on; updateStatus(); });
+    layout->addWidget(giftCard);
+
+    // --- Begegnungen ---
+    auto* staticCard = new Card("Statische Begegnungen", QString(), content);
+    staticsBox = new QCheckBox("Legendäre und besondere Begegnungen", staticCard);
+    staticCard->body()->addLayout(rowWithInfo(staticsBox,
+        "Dialga bzw. Palkia an der Speersäule, Giratina, Heatran, Regigigas, Selfe und Tobutz, Arceus, Darkrai, Shaymin "
+        "und alle Legendären im Ramanas-Park sowie Driftlon am Windkraftwerk, Rotom in der Alten Villa und Kryppuk. "
+        "Legendäre werden wieder zu Legendären. Die Regis, die Regigigas zum Aufwachen braucht, werden dabei "
+        "mitgetauscht – du brauchst dann die neuen Pokémon im Team."));
+    connect(staticsBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.statics = on; updateStatus(); });
+    layout->addWidget(staticCard);
+
+    // --- Tausch ---
+    auto* tradeCard = new Card("Tausch", QString(), content);
+    tradesBox = new QCheckBox("Tauschpartner geben zufällige Pokémon", tradeCard);
+    tradeCard->body()->addLayout(rowWithInfo(tradesBox,
+        "Die vier Tauschpartner (sonst Abra, Plaudagei, Alpollo und Karpador) geben zufällige Pokémon mit passenden "
+        "Attacken. Was du abgeben musst, bleibt gleich."));
+    connect(tradesBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.trades = on; updateStatus(); });
+    layout->addWidget(tradeCard);
+
+    // --- Gemeinsame Regeln ---
+    auto* rulesCard = new Card("Regeln für Geschenke, Begegnungen und Tausch", QString(), content);
+    strengthBox = new QCheckBox("Ähnlich starke Pokémon", rulesCard);
+    rulesCard->body()->addLayout(rowWithInfo(strengthBox,
+        "Optional, standardmäßig aus: Das neue Pokémon hat ungefähr dieselbe Basiswerte-Summe wie das alte. Gilt nicht "
+        "für die Starter, die haben eine eigene Option."));
+    connect(strengthBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.similarStrength = on; });
+    legendBox = new QCheckBox("Legendäre Pokémon erlauben", rulesCard);
+    rulesCard->body()->addLayout(rowWithInfo(legendBox,
+        "Legendäre und Mysteriöse Pokémon dürfen auch dort auftauchen, wo vorher keine waren – auch als zufällige "
+        "Starter."));
+    connect(legendBox, &QCheckBox::toggled, this, [this](bool on) { encounterSettings.legendaries = on; });
+    layout->addWidget(rulesCard);
+    layout->addStretch();
+
+    refreshStartersPage();
+    return wrapPage("Starter & Geschenke", "Starter, geschenkte Pokémon, statische Begegnungen und Tausch.", content);
+}
+
+void BdspRandomizerWindow::fillStarterCombos() {
+    if (!files || wishCombos[0] == nullptr) return;
+    bdsp::GameTexts texts;
+    texts.load(QDir::fromNativeSeparators(romfsEdit->text().trimmed()));
+    const QList<bdsp::StarterChoice> all = bdsp::availablePokemon(*files);
+    for (int i = 0; i < 3; i++) {
+        QSignalBlocker block(wishCombos[i]);
+        wishCombos[i]->clear();
+        wishCombos[i]->addItem("– Original –", 0);
+        for (const bdsp::StarterChoice& c : all) {
+            wishCombos[i]->addItem(QString("%1  ·  #%2").arg(texts.pokemonName(c.species, 0)).arg(c.species, 3, 10, QChar('0')),
+                                   c.species);
+        }
+        auto* completer = new QCompleter(wishCombos[i]->model(), wishCombos[i]);
+        completer->setCaseSensitivity(Qt::CaseInsensitive);
+        completer->setFilterMode(Qt::MatchContains);
+        completer->setCompletionMode(QCompleter::PopupCompletion);
+        wishCombos[i]->setCompleter(completer);
+    }
+    refreshStartersPage();
+}
+
+void BdspRandomizerWindow::refreshStartersPage() {
+    if (starterMode == nullptr) return;
+    std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+    for (QWidget* w : std::initializer_list<QWidget*>{starterMode, starterTypes, starterStages, starterStrength, giftsBox,
+                                                     staticsBox, tradesBox, strengthBox, legendBox,
+                                                     wishCombos[0], wishCombos[1], wishCombos[2]}) {
+        blockers.push_back(std::make_unique<QSignalBlocker>(w));
+    }
+    starterMode->setCurrent(encounterSettings.starterMode);
+    starterTypes->setCurrent(encounterSettings.starterTypes);
+    starterStages->setChecked(encounterSettings.starterThreeStages);
+    starterStrength->setChecked(encounterSettings.starterSimilarStrength);
+    giftsBox->setChecked(encounterSettings.gifts);
+    staticsBox->setChecked(encounterSettings.statics);
+    tradesBox->setChecked(encounterSettings.trades);
+    strengthBox->setChecked(encounterSettings.similarStrength);
+    legendBox->setChecked(encounterSettings.legendaries);
+    for (int i = 0; i < 3; i++) {
+        const int index = wishCombos[i]->findData(encounterSettings.wished[i].species);
+        wishCombos[i]->setCurrentIndex(index >= 0 ? index : 0);
+        wishCombos[i]->setEnabled(files != nullptr);
+    }
+    starterRandomBox->setVisible(encounterSettings.starterMode == 1);
+    starterWishBox->setVisible(encounterSettings.starterMode == 2);
 }
 
 // ---------------------------------------------------------------- Trainer
@@ -645,18 +846,30 @@ bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
     texts.load(romfs);
 
     bdsp::GameFiles work = *files; // Original bleibt fuer weitere Durchlaeufe unveraendert
+
+    // Starter, Geschenke, Begegnungen und Tausch zuerst: die Starter von Rivale und Lucius/Lucia
+    // werden dabei festgelegt und vom Trainer-Randomizer nicht mehr veraendert
+    const QString exefs = QDir::fromNativeSeparators(exefsEdit->text().trimmed());
+    bdsp::EncounterResult encounters;
+    QString stepError;
+    if (!bdsp::randomizeEncounters(romfs, exefs, work, encounterSettings, seed, encounters, &stepError)) {
+        if (error) *error = stepError;
+        return false;
+    }
     const bdsp::TrainerRandomizerResult result = bdsp::randomizeTrainers(work, trainerSettings, seed);
 
     QDir(outputFolder).removeRecursively();
     const QString romfsOut = outputFolder + "/romfs";
     QString saveError;
-    if (!work.save(romfsOut, &saveError)) {
+    if (!work.save(romfsOut, &saveError) || !bdsp::writeEncounters(outputFolder, encounters, &saveError)) {
         if (error) *error = "Die Dateien konnten nicht geschrieben werden:\n" + saveError;
         return false;
     }
+    lastHadExefsPatch = !encounters.ips.isEmpty();
 
     if (spoilerLog->isChecked()) {
-        bdsp::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, {}, seedText, check.version);
+        bdsp::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings,
+                           bdsp::encounterSpoiler(encounters, work, texts), seedText, check.version);
     }
 
     QFile info(outputFolder + "/Info.txt");
@@ -666,8 +879,11 @@ bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         out << "Erstellt: " << QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm") << "\n";
         out << "Seed: " << seedText << "\n";
         out << "Spiel: " << bdsp::versionName(check.version) << "\n";
-        out << "Geänderte Trainer: " << result.randomized << "\n\n";
-        out << "Trainer-Einstellungen:\n" << QJsonDocument(bdsp::settingsToJson(trainerSettings)).toJson();
+        out << "Geänderte Trainer: " << result.randomized << "\n";
+        out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << encounters.changes.size() << "\n";
+        if (!encounters.ips.isEmpty()) out << "ExeFS-Patch: exefs/" << encounters.ipsName << "\n";
+        out << "\nTrainer-Einstellungen:\n" << QJsonDocument(bdsp::settingsToJson(trainerSettings)).toJson() << "\n";
+        out << "Starter & Geschenke:\n" << QJsonDocument(bdsp::encounterSettingsToJson(encounterSettings)).toJson();
     }
     lastSeed = seedText;
     return true;
@@ -699,7 +915,8 @@ void BdspRandomizerWindow::startRandomizer() {
     const QString tid = bdsp::titleId(check.version);
     box.setText("Der Randomizer ist fertig (Seed " + lastSeed + ").");
     if (copied) {
-        box.setInformativeText("Der Ordner „romfs“ wurde direkt in deinen Mod-Ordner geschrieben:\n" +
+        box.setInformativeText(QString(lastHadExefsPatch ? "Die Ordner „romfs“ und „exefs“ wurden" : "Der Ordner „romfs“ wurde") +
+                               " direkt in deinen Mod-Ordner geschrieben:\n" +
                                QDir::toNativeSeparators(modFolderEdit->text().trimmed()) +
                                "\n\nStarte das Spiel im Emulator (neu) – der Mod ist sofort aktiv. Eine Kopie liegt "
                                "außerdem in Randomizer-1.");
@@ -707,11 +924,17 @@ void BdspRandomizerWindow::startRandomizer() {
         box.setInformativeText(copyError + "\n\nDie Dateien liegen trotzdem in Randomizer-1 und können von Hand "
                                "kopiert werden.");
     } else {
-        box.setInformativeText(
+        QString text =
             "Kopiere den Ordner „romfs“ aus Randomizer-1 in einen Mod-Ordner deines Spiels:\n\n"
             "• Ryujinx: Rechtsklick auf das Spiel → „Mod-Verzeichnis öffnen“, dort einen Ordner (z. B. Randomizer) "
             "anlegen und „romfs“ hineinkopieren.\n"
-            "• Switch (Atmosphère): atmosphere/contents/" + (tid.isEmpty() ? QString("<Title-ID>") : tid) + "/romfs");
+            "• Switch (Atmosphère): atmosphere/contents/" + (tid.isEmpty() ? QString("<Title-ID>") : tid) + "/romfs";
+        if (lastHadExefsPatch) {
+            text += "\n\nWichtig: Es gibt zusätzlich einen Ordner „exefs“ (Patch für Starter/Evoli). Bei Emulatoren "
+                    "kommt er neben „romfs“ in denselben Mod-Ordner. Auf der Switch gehört die .ips-Datei nach "
+                    "atmosphere/exefs_patches/Randomizer/.";
+        }
+        box.setInformativeText(text);
     }
     QPushButton* openMod = copied ? box.addButton("Mod-Ordner öffnen", QMessageBox::ActionRole) : nullptr;
     QPushButton* openFolder = box.addButton("Ordner öffnen", QMessageBox::ActionRole);
@@ -865,6 +1088,22 @@ bool BdspRandomizerWindow::copyToModFolder(const QString& output, QString* error
         if (error) *error = "Die Dateien konnten nicht in den Mod-Ordner kopiert werden:\n" + QDir::toNativeSeparators(target);
         return false;
     }
+    // Patch fuer den Programmcode (Starter, Evoli): exefs/<Build-ID>.ips, ein alter Patch wird ersetzt
+    const QString exefsTarget = folder + "/exefs";
+    const QString exefsCanonical = QFileInfo(exefsTarget).canonicalFilePath();
+    const QString dumpExefs = QFileInfo(QDir::fromNativeSeparators(exefsEdit->text().trimmed())).canonicalFilePath();
+    if (!dumpExefs.isEmpty() && dumpExefs == exefsCanonical) {
+        if (error) *error = "Der Mod-Ordner zeigt auf deinen Dump. Bitte wähle einen eigenen Mod-Ordner.";
+        return false;
+    }
+    if (QDir(exefsTarget).exists() && !QDir(exefsTarget).removeRecursively()) {
+        if (error) *error = "Der alte Ordner „exefs“ im Mod-Ordner konnte nicht gelöscht werden.";
+        return false;
+    }
+    if (QDir(output + "/exefs").exists() && !copyFolder(output + "/exefs", exefsTarget)) {
+        if (error) *error = "Der ExeFS-Patch konnte nicht in den Mod-Ordner kopiert werden.";
+        return false;
+    }
     return true;
 }
 
@@ -875,6 +1114,7 @@ QJsonObject BdspRandomizerWindow::settingsJson() const {
     json["seed"] = seedEdit->text();
     json["spoilerLog"] = spoilerLog->isChecked();
     json["trainer"] = bdsp::settingsToJson(trainerSettings);
+    json["encounters"] = bdsp::encounterSettingsToJson(encounterSettings);
     return json;
 }
 
@@ -886,7 +1126,12 @@ void BdspRandomizerWindow::applySettingsJson(const QJsonObject& json) {
         bdsp::settingsFromJson(json.value("trainer").toObject(), trainerSettings);
         for (int g = 0; g < bdsp::GroupCount; g++) ownInitialized[g] = trainerSettings.modes[g] == bdsp::OwnSettings;
     }
+    if (json.value("encounters").isObject()) {
+        encounterSettings = bdsp::EncounterSettings();
+        bdsp::encounterSettingsFromJson(json.value("encounters").toObject(), encounterSettings);
+    }
     refreshTrainerPage();
+    refreshStartersPage();
     if (activeInfo) updateStatus();
 }
 

@@ -140,6 +140,40 @@ bool BundleData::load(const QString& romfs, const QString& relPath, const QStrin
     return true;
 }
 
+bool BundleData::loadWhere(const QString& romfs, const QString& relPath,
+                           const std::function<bool(const UValue&)>& keep, QString* error) {
+    rel = relPath;
+    values.clear();
+    objectIndex.clear();
+    bool ok = false;
+    raw = readFile(romfs + "/" + relPath, &ok);
+    if (!ok) {
+        if (error) *error = "Datei nicht gefunden: " + relPath;
+        return false;
+    }
+    bundle = std::make_shared<UnityBundle>();
+    QString err;
+    if (!bundle->load(raw, &err)) {
+        if (error) *error = relPath + ": " + err;
+        return false;
+    }
+    SerializedFile* file = bundle->serialized(&err);
+    if (!file) {
+        if (error) *error = relPath + ": " + err;
+        return false;
+    }
+    for (int i = 0; i < file->objectCount(); i++) {
+        if (file->classId(i) != 114) continue;
+        const QString name = file->objectName(i);
+        if (name.isEmpty() || values.contains(name)) continue;
+        UValue v = file->read(i);
+        if (!v.isValid() || !keep(v)) continue;
+        objectIndex.insert(name, i);
+        values.insert(name, v);
+    }
+    return true;
+}
+
 const UValue& BundleData::table(const QString& name) const {
     static const UValue invalid;
     auto it = values.constFind(name);
@@ -477,6 +511,7 @@ GameFiles& GameFiles::operator=(const GameFiles& other) {
     personalChanged = other.personalChanged;
     learnsetsChanged = other.learnsetsChanged;
     evolutionsChanged = other.evolutionsChanged;
+    tradesChanged = other.tradesChanged;
     attachTables();
     return *this;
 }
@@ -491,7 +526,7 @@ bool GameFiles::load(const QString& romfs, QStringList* errors) {
     QString err;
     if (!personalBundle.load(romfs, path::Personal,
                              {"PersonalTable", "EvolveTable", "WazaOboeTable", "WazaTable", "ItemTable"}, &err) ||
-        !masterBundle.load(romfs, path::Master, {"TrainerTable"}, &err)) {
+        !masterBundle.load(romfs, path::Master, {"TrainerTable", "LocalKoukanData"}, &err)) {
         if (errors) *errors << err;
         return false;
     }
@@ -528,10 +563,13 @@ bool GameFiles::save(const QString& outRomfs, QString* error) {
     if (evolutionsChanged) personalTables << "EvolveTable";
     if (learnsetsChanged) personalTables << "WazaOboeTable";
     if (!personalTables.isEmpty() && !personalBundle.save(outRomfs, personalTables, error)) return false;
+    QStringList masterTables;
     if (trainers.anyChanged()) {
         trainers.store(masterBundle.table("TrainerTable"));
-        if (!masterBundle.save(outRomfs, {"TrainerTable"}, error)) return false;
+        masterTables << "TrainerTable";
     }
+    if (tradesChanged) masterTables << "LocalKoukanData";
+    if (!masterTables.isEmpty() && !masterBundle.save(outRomfs, masterTables, error)) return false;
     return true;
 }
 

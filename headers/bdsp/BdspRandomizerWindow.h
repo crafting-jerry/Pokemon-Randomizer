@@ -21,6 +21,8 @@
 
 #include "bdsp_files.h"
 #include "bdsp_trainers.h"
+#include "bdsp_encounters.h"
+#include <QComboBox>
 
 class SwShTrainerEditor;
 namespace modernui { class SegmentedControl; }
@@ -36,6 +38,7 @@ public:
     bool dumpReady() const { return files != nullptr; }
     bool randomizeTo(const QString& outputFolder, QString* error);
     bdsp::TrainerSettings& trainerSettingsRef() { return trainerSettings; }
+    bdsp::EncounterSettings& encounterSettingsRef() { return encounterSettings; }
     void refreshAllPages();
     void showPage(int index);
 
@@ -87,6 +90,25 @@ private:
     SwShTrainerEditor* groupEditors[bdsp::GroupCount] = {};
     QWidget* groupEditorBoxes[bdsp::GroupCount] = {};
     modernui::SegmentedControl* groupSelectors[bdsp::GroupCount] = {};
+
+    // Starter & Geschenke
+    bdsp::EncounterSettings encounterSettings;
+    modernui::SegmentedControl* starterMode = nullptr;
+    modernui::SegmentedControl* starterTypes = nullptr;
+    QCheckBox* starterStages = nullptr;
+    QCheckBox* starterStrength = nullptr;
+    QWidget* starterRandomBox = nullptr;
+    QWidget* starterWishBox = nullptr;
+    QComboBox* wishCombos[3] = {};
+    QCheckBox* giftsBox = nullptr;
+    QCheckBox* staticsBox = nullptr;
+    QCheckBox* tradesBox = nullptr;
+    QCheckBox* strengthBox = nullptr;
+    QCheckBox* legendBox = nullptr;
+    QWidget* buildStartersPage();
+    void refreshStartersPage();
+    void fillStarterCombos();
+    bool lastHadExefsPatch = false;
 
     QString lastSeed;
     bdsp::DumpCheck check;
