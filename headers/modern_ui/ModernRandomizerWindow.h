@@ -71,6 +71,16 @@ private:
     QCheckBox* autoPatch = nullptr;
     QCheckBox* spoilerLog = nullptr;
 
+    // Ausgabe direkt in den Mod-Ordner
+    QCheckBox* modDirect = nullptr;
+    QLineEdit* modFolderEdit = nullptr;
+    QWidget* modRow = nullptr;
+    QString lastSeed;
+    void findEmulator();
+    void saveOutputSettings() const;
+    void loadOutputSettings();
+    void writeInfoFiles(const QStringList& folders, const QString& seedText) const;
+
     // Trainer-Seite
     bool trainersEnabled = false;
     bool regionPaldea = true;

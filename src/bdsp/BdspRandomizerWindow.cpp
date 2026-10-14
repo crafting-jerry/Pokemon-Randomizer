@@ -3,6 +3,7 @@
 #include "headers/swsh/SwShTrainerEditor.h"
 
 #include <QApplication>
+#include "headers/common/mod_output.h"
 #include <QCompleter>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -1299,8 +1300,7 @@ void BdspRandomizerWindow::startRandomizer() {
 // ------------------------------------------------------------ Vorlagen
 
 void BdspRandomizerWindow::saveTemplate() {
-    const QString dir = QDir::current().filePath("Randomizers-Output/Vorlagen");
-    QDir().mkpath(dir);
+    const QString dir = modoutput::templateFolder(modoutput::kBdsp);
     QString path = QFileDialog::getSaveFileName(this, "Einstellungen speichern", dir + "/Diamant-Perle.json",
                                                 "Randomizer-Vorlage (*.json)");
     if (path.isEmpty()) return;
@@ -1317,7 +1317,7 @@ void BdspRandomizerWindow::saveTemplate() {
 }
 
 void BdspRandomizerWindow::loadTemplate() {
-    const QString dir = QDir::current().filePath("Randomizers-Output/Vorlagen");
+    const QString dir = modoutput::templateLoadFolder(modoutput::kBdsp, {QDir::current().filePath("Randomizers-Output/Vorlagen")});
     const QString path = QFileDialog::getOpenFileName(this, "Einstellungen laden", QDir(dir).exists() ? dir : QDir::currentPath(),
                                                       "Randomizer-Vorlage (*.json)");
     if (path.isEmpty()) return;
@@ -1349,108 +1349,16 @@ void BdspRandomizerWindow::findEmulator() {
                                  "Leuchtende Perle) wird aus der ExeFS erkannt.");
         return;
     }
-    QStringList roots;
-    const QString appData = qEnvironmentVariable("APPDATA");
-    if (!appData.isEmpty()) roots << appData;
-    roots << QDir::homePath() + "/.config" << QDir::homePath() + "/.local/share"
-          << QDir::homePath() + "/Library/Application Support";
-    struct Emulator { QString name, folder, sub; bool lower; };
-    const QList<Emulator> emulators = {
-        {"Ryujinx", "Ryujinx", "mods/contents", true},
-        {"yuzu", "yuzu", "load", false},
-        {"suyu", "suyu", "load", false},
-        {"sudachi", "sudachi", "load", false},
-        {"citron", "citron", "load", false},
-        {"Eden", "eden", "load", false},
-    };
-    QStringList labels, paths;
-    for (const QString& root : roots) {
-        for (const Emulator& e : emulators) {
-            const QString base = root + "/" + e.folder;
-            if (!QDir(base).exists()) continue;
-            const QString path = QDir::cleanPath(base + "/" + e.sub + "/" + (e.lower ? tid.toLower() : tid) + "/Randomizer");
-            if (paths.contains(path)) continue;
-            labels << e.name + "  –  " + QDir::toNativeSeparators(path);
-            paths << path;
-        }
-    }
-    if (paths.isEmpty()) {
-        QMessageBox::information(this, "Emulator suchen",
-                                 "Es wurde kein Emulator gefunden (Ryujinx, yuzu, suyu, sudachi, citron, Eden).\n\n"
-                                 "Wähle den Mod-Ordner bitte über „Durchsuchen“ aus. In Ryujinx findest du ihn per "
-                                 "Rechtsklick auf das Spiel → „Mod-Verzeichnis öffnen“.");
-        return;
-    }
-    int choice = 0;
-    if (paths.size() > 1) {
-        bool ok = false;
-        const QString picked = QInputDialog::getItem(this, "Emulator suchen", "Mehrere Emulatoren gefunden:", labels, 0,
-                                                     false, &ok);
-        if (!ok) return;
-        choice = static_cast<int>(labels.indexOf(picked));
-    }
-    modFolderEdit->setText(QDir::toNativeSeparators(paths[choice]));
+    const QString path = modoutput::askEmulatorModFolder(this, {{bdsp::versionName(check.version), tid}});
+    if (path.isEmpty()) return;
+    modFolderEdit->setText(QDir::toNativeSeparators(path));
     modDirect->setChecked(true);
     saveSettings();
 }
 
-namespace {
-bool copyFolder(const QString& from, const QString& to) {
-    QDir source(from);
-    if (!QDir().mkpath(to)) return false;
-    for (const QFileInfo& entry : source.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) {
-        const QString target = to + "/" + entry.fileName();
-        if (entry.isDir()) {
-            if (!copyFolder(entry.absoluteFilePath(), target)) return false;
-        } else if (!QFile::copy(entry.absoluteFilePath(), target)) {
-            return false;
-        }
-    }
-    return true;
-}
-} // namespace
-
 bool BdspRandomizerWindow::copyToModFolder(const QString& output, QString* error) const {
-    const QString folder = QDir::cleanPath(QDir::fromNativeSeparators(modFolderEdit->text().trimmed()));
-    if (folder.isEmpty() || QDir(folder).isRoot()) {
-        if (error) *error = "Bitte gib einen Mod-Ordner an.";
-        return false;
-    }
-    const QString target = folder + "/romfs";
-    // Schutz: niemals den eigenen Dump ersetzen
-    const QString dump = QFileInfo(QDir::fromNativeSeparators(romfsEdit->text().trimmed())).canonicalFilePath();
-    const QString targetCanonical = QFileInfo(target).canonicalFilePath();
-    if (!dump.isEmpty() && !targetCanonical.isEmpty() &&
-        (dump == targetCanonical || dump.startsWith(targetCanonical + "/"))) {
-        if (error) *error = "Der Mod-Ordner zeigt auf deinen Dump. Bitte wähle einen eigenen Mod-Ordner.";
-        return false;
-    }
-    if (QDir(target).exists() && !QDir(target).removeRecursively()) {
-        if (error) *error = "Der alte Ordner „romfs“ im Mod-Ordner konnte nicht gelöscht werden:\n" +
-                            QDir::toNativeSeparators(target);
-        return false;
-    }
-    if (!copyFolder(output + "/romfs", target)) {
-        if (error) *error = "Die Dateien konnten nicht in den Mod-Ordner kopiert werden:\n" + QDir::toNativeSeparators(target);
-        return false;
-    }
-    // Patch fuer den Programmcode (Starter, Evoli): exefs/<Build-ID>.ips, ein alter Patch wird ersetzt
-    const QString exefsTarget = folder + "/exefs";
-    const QString exefsCanonical = QFileInfo(exefsTarget).canonicalFilePath();
-    const QString dumpExefs = QFileInfo(QDir::fromNativeSeparators(exefsEdit->text().trimmed())).canonicalFilePath();
-    if (!dumpExefs.isEmpty() && dumpExefs == exefsCanonical) {
-        if (error) *error = "Der Mod-Ordner zeigt auf deinen Dump. Bitte wähle einen eigenen Mod-Ordner.";
-        return false;
-    }
-    if (QDir(exefsTarget).exists() && !QDir(exefsTarget).removeRecursively()) {
-        if (error) *error = "Der alte Ordner „exefs“ im Mod-Ordner konnte nicht gelöscht werden.";
-        return false;
-    }
-    if (QDir(output + "/exefs").exists() && !copyFolder(output + "/exefs", exefsTarget)) {
-        if (error) *error = "Der ExeFS-Patch konnte nicht in den Mod-Ordner kopiert werden.";
-        return false;
-    }
-    return true;
+    return modoutput::copyToModFolder(output, modFolderEdit->text(), {QDir::fromNativeSeparators(romfsEdit->text().trimmed()),
+                                       QDir::fromNativeSeparators(exefsEdit->text().trimmed())}, true, error);
 }
 
 // ------------------------------------------------------------ Speichern

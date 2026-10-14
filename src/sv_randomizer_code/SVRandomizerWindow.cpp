@@ -149,6 +149,18 @@ void SVRandomizerWindow::createLayout()
 }
 
 void SVRandomizerWindow::runRandomizer(){
+    QString error;
+    if (!runRandomizerRuns(true, &error)) {
+        QMessageBox::warning(this, "Randomisieren", error);
+    }
+}
+
+namespace {
+QMessageBox* progressBox = nullptr; // Fortschrittsanzeige waehrend der Durchlaeufe
+}
+
+bool SVRandomizerWindow::runRandomizerRuns(bool showFinalMessage, QString* error){
+    lastOutputFolders.clear();
     // setup randNum and seed
     qDebug()<<"Running Randomizer";
     qDebug()<<"Generating seed value for: "<<randomizer.seed;
@@ -170,29 +182,29 @@ void SVRandomizerWindow::runRandomizer(){
     std::seed_seq seq{ seed_low, seed_high };
     randNum = QRandomGenerator(seq);
 
-    QString outputFolderName = "Randomizers-Output";
-    QString outputFolderPath = QDir::current().filePath(outputFolderName);
-    QDir outputDir(outputFolderPath);
-
-    // If the folder exists, delete it
-    if (outputDir.exists()) {
-        if (!outputDir.removeRecursively()) {
-            qFatal() << "Failed to delete existing folder:" << outputFolderPath;
+    // Eigener Unterordner fuer Karmesin/Purpur: nur die alten Ergebnisse (Randomizer-1, -2, ...) werden
+    // geloescht, Vorlagen und die Ordner der anderen Spiele bleiben erhalten
+    const QString outputFolderPath = QDir::current().filePath("Randomizers-Output/Karmesin-Purpur");
+    if (!QDir().mkpath(outputFolderPath)) {
+        if (error) *error = "Der Ausgabeordner konnte nicht angelegt werden:\n" + QDir::toNativeSeparators(outputFolderPath);
+        return false;
+    }
+    for (const QString& old : QDir(outputFolderPath).entryList({"Randomizer-*"}, QDir::Dirs | QDir::NoDotAndDotDot)) {
+        if (!QDir(outputFolderPath + "/" + old).removeRecursively()) {
+            if (error) *error = "Der alte Ordner konnte nicht gelöscht werden (ist eine Datei darin noch geöffnet?):\n" +
+                                QDir::toNativeSeparators(outputFolderPath + "/" + old);
+            return false;
         }
-        qDebug() << "Deleted existing folder:" << outputFolderPath;
     }
-
-    // Recreate the folder
-    if (!QDir().mkdir(outputFolderPath)) {
-        qFatal() << "Failed to create directory:" << outputFolderPath;
-    }
+    // Reste eines abgebrochenen Durchlaufs entfernen
+    QDir(QDir::current().filePath("output")).removeRecursively();
 
     for(unsigned int i = 0; i<randomizer.bulk_amount; i++){
-        QString currentRunMessage = "Doing Randomizer Run: " + QString::fromStdString(std::to_string(i+1)) + "/" + QString::fromStdString(std::to_string(randomizer.bulk_amount));
+        QString currentRunMessage = QString("Randomizer %1 von %2 wird erstellt …").arg(i + 1).arg(randomizer.bulk_amount);
         showMessage(currentRunMessage, i);
         qDebug()<<"Starting Randomizer!";
 
-        QString newOutputFolder = QString("Randomizers-Output/Randomizer-%1").arg(i + 1);
+        QString newOutputFolder = outputFolderPath + QString("/Randomizer-%1").arg(i + 1);
 
         if(randomizer.svRandomizerStarters.randomizeStarters == true ||
             randomizer.svRandomizerStarters.randomizeGifts == true){
@@ -257,47 +269,53 @@ void SVRandomizerWindow::runRandomizer(){
         QString basePath = QDir::currentPath();  // or use QCoreApplication::applicationDirPath()
         QString outputFolder = basePath + "/output";
 
-        if (QDir(outputFolder).exists()) {
-            if (!QDir().rename(outputFolder, newOutputFolder)) {
-                qFatal() << "Failed to move and rename output folder from" << outputFolder << "to" << newOutputFolder;
-            }
-        } else {
-            qFatal() << "Output folder does not exist at" << outputFolder;
+        if (!QDir(outputFolder).exists()) {
+            if (progressBox) progressBox->hide();
+            if (error) *error = "Der Randomizer hat keine Dateien erzeugt (Ordner „output“ fehlt).";
+            return false;
         }
+        if (!QDir().rename(outputFolder, newOutputFolder)) {
+            if (progressBox) progressBox->hide();
+            if (error) *error = "Das Ergebnis konnte nicht verschoben werden nach:\n" + QDir::toNativeSeparators(newOutputFolder);
+            return false;
+        }
+        lastOutputFolders << newOutputFolder;
     }
 
-    QString currentRunMessage = "Finalized Randomizer! - Click Ok to be done";
-    showMessage(currentRunMessage, ENDRANDOMIZER);
+    if (showFinalMessage) {
+        showMessage("Fertig! Die Ergebnisse liegen in Randomizers-Output → Karmesin-Purpur.", ENDRANDOMIZER);
+    } else if (progressBox) {
+        progressBox->hide();
+    }
+    return true;
 }
 
 void SVRandomizerWindow::showMessage(const QString &message, unsigned int id) {
-    static QMessageBox* msgBox = nullptr;
-
-    if (!msgBox) {
-        msgBox = new QMessageBox;
-        msgBox->setWindowTitle("Current Run Information");
-        msgBox->setAttribute(Qt::WA_DeleteOnClose, false); // Do not delete when closed
+    if (!progressBox) {
+        progressBox = new QMessageBox;
+        progressBox->setWindowTitle("Randomizer");
+        progressBox->setAttribute(Qt::WA_DeleteOnClose, false); // Do not delete when closed
     }
 
-    msgBox->setText(message);
+    progressBox->setText(message);
 
     // Set buttons based on id
     if (id == ENDRANDOMIZER) {
-        msgBox->setStandardButtons(QMessageBox::Ok);
+        progressBox->setStandardButtons(QMessageBox::Ok);
     } else {
-        msgBox->setStandardButtons(QMessageBox::NoButton); // No buttons
+        progressBox->setStandardButtons(QMessageBox::NoButton); // No buttons
     }
 
     // Bring to front
-    msgBox->raise();
-    msgBox->activateWindow();
+    progressBox->raise();
+    progressBox->activateWindow();
     QApplication::beep();
 
-    if (!msgBox->isVisible()) {
-        msgBox->show(); // Non-blocking
+    if (!progressBox->isVisible()) {
+        progressBox->show(); // Non-blocking
     }
 
-    msgBox->update();
+    progressBox->update();
     QApplication::processEvents();
 }
 

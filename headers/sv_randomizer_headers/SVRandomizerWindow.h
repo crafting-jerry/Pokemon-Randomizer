@@ -102,6 +102,12 @@ public slots:
     void switchTabs(QStackedWidget * stackedWidget, int i = 0);
     void runRandomizer() override;
 
+public:
+    // Fuer die neue Oberflaeche: fuehrt alle Durchlaeufe aus, ohne Abschluss-Meldung.
+    // Ergebnisse: Randomizers-Output/Karmesin-Purpur/Randomizer-1, -2, ... (lastOutputFolders)
+    bool runRandomizerRuns(bool showFinalMessage, QString* error);
+    QStringList lastOutputFolders;
+
 signals:
     void importSettings() override;
 

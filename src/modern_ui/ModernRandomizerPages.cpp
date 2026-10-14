@@ -543,5 +543,9 @@ void ModernRandomizerWindow::updateStatus() {
         return;
     }
     QStringList areas = activeAreas();
-    activeInfo->setText(areas.isEmpty() ? "Noch nichts ausgewählt" : "Aktiv: " + areas.join(", "));
+    // Lange Listen kuerzen, damit die Statusleiste das Fenster nicht verbreitert (alles steht im Tooltip)
+    QStringList shown = areas.mid(0, 6);
+    if (areas.size() > shown.size()) shown << QString("+ %1 weitere").arg(areas.size() - shown.size());
+    activeInfo->setText(areas.isEmpty() ? QString("Noch nichts ausgewählt") : "Aktiv: " + shown.join(", "));
+    activeInfo->setToolTip(areas.size() > 6 ? areas.join("\n") : QString());
 }
