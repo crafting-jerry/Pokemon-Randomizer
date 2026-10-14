@@ -533,6 +533,7 @@ GameFiles& GameFiles::operator=(const GameFiles& other) {
     evolutionsChanged = other.evolutionsChanged;
     tradesChanged = other.tradesChanged;
     shopsChanged = other.shopsChanged;
+    towerChanged = other.towerChanged;
     attachTables();
     return *this;
 }
@@ -547,7 +548,8 @@ bool GameFiles::load(const QString& romfs, QStringList* errors) {
     QString err;
     if (!personalBundle.load(romfs, path::Personal,
                              {"PersonalTable", "EvolveTable", "WazaOboeTable", "WazaTable", "ItemTable"}, &err) ||
-        !masterBundle.load(romfs, path::Master, {"TrainerTable", "LocalKoukanData", "ShopTable"}, &err)) {
+        !masterBundle.load(romfs, path::Master, {"TrainerTable", "LocalKoukanData", "ShopTable", "TowerTrainerTable",
+                                                    "TowerSingleStockTable", "TowerDoubleStockTable"}, &err)) {
         if (errors) *errors << err;
         return false;
     }
@@ -591,6 +593,7 @@ bool GameFiles::save(const QString& outRomfs, QString* error) {
     }
     if (tradesChanged) masterTables << "LocalKoukanData";
     if (shopsChanged) masterTables << "ShopTable";
+    if (towerChanged) masterTables << "TowerTrainerTable";
     if (!masterTables.isEmpty() && !masterBundle.save(outRomfs, masterTables, error)) return false;
     return true;
 }

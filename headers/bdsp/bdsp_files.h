@@ -247,6 +247,7 @@ public:
     bool evolutionsChanged = false;
     bool tradesChanged = false; // LocalKoukanData (Tausch) in masterdatas
     bool shopsChanged = false;  // ShopTable (Laeden) in masterdatas
+    bool towerChanged = false;  // TowerTrainerTable (Kampfturm) in masterdatas
 
     // Schreibt alle geaenderten Bundles nach outRomfs
     bool save(const QString& outRomfs, QString* error);

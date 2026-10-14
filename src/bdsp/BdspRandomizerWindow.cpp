@@ -29,7 +29,8 @@
 using namespace modernui;
 
 namespace {
-const QStringList kPages = {"Start", "Trainer", "Starter & Geschenke", "Wilde Pokémon", "Items", "Pokémon-Daten"};
+const QStringList kPages = {"Start", "Trainer", "Starter & Geschenke", "Wilde Pokémon", "Items", "Pokémon-Daten",
+                            "Kampfturm"};
 
 const char* kSettingsOrg = "Pokemon Randomizer";
 const char* kSettingsApp = "DiamantPerle";
@@ -56,8 +57,8 @@ BdspRandomizerWindow::BdspRandomizerWindow(QWidget* parent) : QWidget(parent) {
     pages->addWidget(buildStartersPage());
     pages->addWidget(buildWildPage());
     pages->addWidget(buildItemsPage());
-    pages->addWidget(buildComingSoonPage("Pokémon-Daten", "Fähigkeiten, Typen, Basiswerte, Attacken und Entwicklungen.",
-        "Dieser Bereich folgt in einem der nächsten Schritte."));
+    pages->addWidget(buildDataPage());
+    pages->addWidget(buildTowerPage());
     middle->addWidget(pages, 1);
 
     root->addLayout(middle, 1);
@@ -253,8 +254,8 @@ QWidget* BdspRandomizerWindow::buildStartPage() {
     spoilerLog = new QCheckBox("Spoiler-Log erstellen", general);
     spoilerLog->setChecked(true);
     general->body()->addLayout(rowWithInfo(spoilerLog,
-        "Erstellt zusätzlich die Datei Spoiler-Log.html mit allen Trainer-Teams, Startern, wilden Pokémon, Items und "
-        "Läden. Öffnet sich im Browser und ist durchsuchbar."));
+        "Erstellt zusätzlich die Datei Spoiler-Log.html mit allen Trainer-Teams, Startern, wilden Pokémon, Items, "
+        "Läden, Pokémon-Daten und dem Kampfturm. Öffnet sich im Browser und ist durchsuchbar."));
     layout->addWidget(general);
 
     // Ausgabe
@@ -345,16 +346,6 @@ QWidget* BdspRandomizerWindow::buildStartPage() {
     layout->addStretch();
 
     return wrapPage("Start", "Spieldateien, allgemeine Einstellungen und Ausgabe.", content);
-}
-
-QWidget* BdspRandomizerWindow::buildComingSoonPage(const QString& title, const QString& subtitle, const QString& text) {
-    auto* content = new QWidget(this);
-    auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(0, 0, 0, 0);
-    auto* card = new Card("In Arbeit", "Bald verfügbar", content);
-    card->body()->addWidget(mutedLabel(text, card));
-    layout->addWidget(card);
-    return wrapPage(title, subtitle, content);
 }
 
 // ---------------------------------------------------------- Spieldateien
@@ -484,6 +475,10 @@ QStringList BdspRandomizerWindow::activeAreas() const {
     if (itemSettings.fieldItems || itemSettings.hiddenItems) areas << "Items";
     if (itemSettings.shops) areas << "Läden";
     if (itemSettings.trainerItems) areas << "Trainer-Items";
+    if (dataSettings.tradeEvolutions) areas << "Tausch-Entwicklungen";
+    if (dataSettings.abilities || dataSettings.types || dataSettings.stats || dataSettings.levelMoves ||
+        dataSettings.tmMode != 0) areas << "Pokémon-Daten";
+    if (towerSettings.enabled) areas << "Kampfturm";
     return areas;
 }
 
@@ -492,7 +487,11 @@ void BdspRandomizerWindow::updateStatus() {
     if (files) {
         const QString game = check.version == bdsp::Version::Unknown ? QString("Strahlender Diamant/Leuchtende Perle")
                                                                     : bdsp::versionName(check.version);
-        activeInfo->setText(areas.isEmpty() ? QString("Noch nichts ausgewählt") : "Aktiv: " + areas.join(", "));
+        // Lange Listen kuerzen, damit die Statusleiste das Fenster nicht verbreitert (alles steht im Tooltip)
+        QStringList shown = areas.mid(0, 6);
+        if (areas.size() > shown.size()) shown << QString("+ %1 weitere").arg(areas.size() - shown.size());
+        activeInfo->setText(areas.isEmpty() ? QString("Noch nichts ausgewählt") : "Aktiv: " + shown.join(", "));
+        activeInfo->setToolTip(areas.size() > 6 ? areas.join("\n") : QString());
         const QString seed = seedEdit->text().trimmed();
         detailInfo->setText(game + "  ·  Seed: " + (seed.isEmpty() ? QString("zufällig") : seed));
         startButton->setEnabled(!areas.isEmpty());
@@ -510,6 +509,8 @@ void BdspRandomizerWindow::refreshAllPages() {
     refreshStartersPage();
     refreshWildPage();
     refreshItemsPage();
+    refreshDataPage();
+    refreshTowerPage();
     updateStatus();
 }
 
@@ -875,6 +876,141 @@ void BdspRandomizerWindow::refreshItemsPage() {
     itemTrainers->setChecked(itemSettings.trainerItems);
 }
 
+// ----------------------------------------------------------- Pokemon-Daten
+
+QWidget* BdspRandomizerWindow::buildDataPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    auto status = [this]() { updateStatus(); };
+    auto* evo = new Card("Entwicklungen", QString(), content);
+    dataTradeEvos = addOption(evo->body(), evo, "Tausch-Entwicklungen ohne Tausch",
+        "Pokémon, die sich nur durch Tausch entwickeln, entwickeln sich jetzt allein:\n"
+        "• Kadabra, Maschock, Georok und Alpollo ab Level 37\n"
+        "• Tausch mit Item (z. B. Onix mit Metallmantel, Seedraking mit Drachenschuppe, Porygon mit Up-Grade): "
+        "Level-Aufstieg, während es das Item trägt",
+        &dataSettings.tradeEvolutions, this, status);
+    layout->addWidget(evo);
+
+    auto* values = new Card("Werte und Fähigkeiten", QString(), content);
+    dataAbilities = addOption(values->body(), values, "Fähigkeiten zufällig",
+        "Jedes Pokémon bekommt zufällige Fähigkeiten (normal und versteckt). Es kommen nur Fähigkeiten vor, die es "
+        "im Spiel gibt. Spezial-Fähigkeiten wie Wunderwache, Prognose oder Variabilität werden weder vergeben noch "
+        "weggenommen.", &dataSettings.abilities, this, status);
+    dataTypes = addOption(values->body(), values, "Typen zufällig",
+        "Die Typen werden neu verteilt. Einfache Pokémon bleiben einfach, doppelte bleiben doppelt. Ein Feuer-Pokémon "
+        "wird also z. B. komplett zum Psycho-Pokémon.", &dataSettings.types, this, status);
+    dataStats = addOption(values->body(), values, "Basiswerte mischen",
+        "Die sechs Basiswerte werden untereinander vertauscht – die Summe bleibt gleich. Ein schneller Angreifer kann so "
+        "zu einem langsamen Verteidiger werden. Ninjatom behält seinen 1 KP.", &dataSettings.stats, this, status);
+    dataFamilies = addOption(values->body(), values, "Entwicklungsreihen einheitlich",
+        "Empfohlen: Alle Pokémon einer Entwicklungsreihe bekommen dieselben Fähigkeiten, dieselbe Typ-Zuordnung und "
+        "dieselbe Werte-Verteilung (Chelast, Chelcarain und Chelterrar passen also zusammen).",
+        &dataSettings.keepFamilies, this);
+    layout->addWidget(values);
+
+    auto* moves = new Card("Attacken", QString(), content);
+    dataMoves = addOption(moves->body(), moves, "Level-Attacken zufällig",
+        "Jedes Pokémon lernt per Level zufällige Attacken – etwa zwei Drittel Schadensattacken, davon die Hälfte vom "
+        "eigenen Typ. Schwache Attacken kommen früh, starke spät. Die erste Attacke ist immer eine Schadensattacke.",
+        &dataSettings.levelMoves, this, status);
+    {
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("TM-Kompatibilität", moves));
+        row->addWidget(new InfoButton("Original: wie im Spiel.\n"
+                                      "Zufällig: jedes Pokémon kann genauso viele TMs lernen wie vorher, aber andere.\n"
+                                      "Alle: jedes Pokémon kann jede TM lernen.\n\n"
+                                      "Die VMs gibt es in Strahlender Diamant und Leuchtende Perle nicht mehr – "
+                                      "Zerschneider, Surfer & Co. setzt du über die Pokétch-App ein, dafür braucht kein "
+                                      "Pokémon die Attacke.", moves));
+        row->addStretch();
+        dataTMs = new SegmentedControl({"Original", "Zufällig", "Alle"}, moves);
+        row->addWidget(dataTMs);
+        moves->body()->addLayout(row);
+        connect(dataTMs, &SegmentedControl::changed, this, [this](int v) {
+            dataSettings.tmMode = v;
+            updateStatus();
+        });
+    }
+    layout->addWidget(moves);
+    layout->addWidget(mutedLabel("Starter, Trainer, wilde Pokémon und der Kampfturm berücksichtigen die neuen Daten "
+                                 "automatisch (z. B. Typ-Arenen und starke Movesets).", content));
+    layout->addStretch();
+
+    refreshDataPage();
+    return wrapPage("Pokémon-Daten", "Entwicklungen, Typen, Werte, Fähigkeiten und Attacken der Pokémon.", content);
+}
+
+void BdspRandomizerWindow::refreshDataPage() {
+    if (dataTMs == nullptr) return;
+    std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+    for (QWidget* w : std::initializer_list<QWidget*>{dataTradeEvos, dataAbilities, dataTypes, dataStats, dataFamilies,
+                                                     dataMoves, dataTMs}) {
+        blockers.push_back(std::make_unique<QSignalBlocker>(w));
+    }
+    dataTradeEvos->setChecked(dataSettings.tradeEvolutions);
+    dataAbilities->setChecked(dataSettings.abilities);
+    dataTypes->setChecked(dataSettings.types);
+    dataStats->setChecked(dataSettings.stats);
+    dataFamilies->setChecked(dataSettings.keepFamilies);
+    dataMoves->setChecked(dataSettings.levelMoves);
+    dataTMs->setCurrent(dataSettings.tmMode);
+}
+
+// --------------------------------------------------------------- Kampfturm
+
+QWidget* BdspRandomizerWindow::buildTowerPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(8);
+        towerBox = new QCheckBox("Kampfturm-Teams randomisieren", content);
+        towerBox->setObjectName("masterSwitch");
+        row->addWidget(towerBox);
+        row->addWidget(new InfoButton(
+            "Alle Pokémon, aus denen die Gegner im Kampfturm ihre Teams zusammenstellen – in Einzel- und Doppelkämpfen, "
+            "auch die Kampfturm-Meister. Sie bekommen starke Movesets für Level 50, passende Fähigkeiten und Kampf-Items. "
+            "Kein Team enthält eine Art doppelt.", content));
+        row->addStretch();
+        layout->addLayout(row);
+        connect(towerBox, &QCheckBox::toggled, this, [this](bool on) {
+            towerSettings.enabled = on;
+            towerContent->setEnabled(on);
+            updateStatus();
+        });
+    }
+    towerContent = new QWidget(content);
+    auto* inner = new QVBoxLayout(towerContent);
+    inner->setContentsMargins(0, 0, 0, 0);
+    auto* card = new Card("Einstellungen", QString(), towerContent);
+    towerEvolvedBox = addOption(card->body(), card, "Nur voll entwickelte Pokémon",
+        "Im Kampfturm treten nur Endstufen oder Pokémon ohne Entwicklung an – wie im Original.",
+        &towerSettings.fullyEvolved, this);
+    towerLegendsBox = addOption(card->body(), card, "Legendäre Pokémon erlauben",
+        "Gegner im Kampfturm dürfen auch Legendäre und Mysteriöse Pokémon einsetzen.", &towerSettings.legendaries, this);
+    inner->addWidget(card);
+    layout->addWidget(towerContent);
+    layout->addStretch();
+
+    refreshTowerPage();
+    return wrapPage("Kampfturm", "Die Gegner im Kampfturm auf der Kampfzone.", content);
+}
+
+void BdspRandomizerWindow::refreshTowerPage() {
+    if (towerBox == nullptr) return;
+    QSignalBlocker b1(towerBox), b2(towerEvolvedBox), b3(towerLegendsBox);
+    towerBox->setChecked(towerSettings.enabled);
+    towerEvolvedBox->setChecked(towerSettings.fullyEvolved);
+    towerLegendsBox->setChecked(towerSettings.legendaries);
+    towerContent->setEnabled(towerSettings.enabled);
+}
+
 // ---------------------------------------------------------------- Trainer
 
 QWidget* BdspRandomizerWindow::buildTrainerPage() {
@@ -1018,6 +1154,10 @@ bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
 
     bdsp::GameFiles work = *files; // Original bleibt fuer weitere Durchlaeufe unveraendert
 
+    // Pokemon-Daten zuerst: Starter, Trainer, wilde Pokemon und Kampfturm richten sich nach den neuen
+    // Typen, Attacken und Entwicklungen
+    const bdsp::PokemonDataResult dataResult = bdsp::randomizePokemonData(work, texts, dataSettings, seed);
+
     // Starter, Geschenke, Begegnungen und Tausch zuerst: die Starter von Rivale und Lucius/Lucia
     // werden dabei festgelegt und vom Trainer-Randomizer nicht mehr veraendert
     const QString exefs = QDir::fromNativeSeparators(exefsEdit->text().trimmed());
@@ -1041,6 +1181,11 @@ bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         if (error) *error = stepError;
         return false;
     }
+    bdsp::TowerResult tower;
+    if (!bdsp::randomizeTower(work, towerSettings, seed, tower, &stepError)) {
+        if (error) *error = stepError;
+        return false;
+    }
 
     QDir(outputFolder).removeRecursively();
     const QString romfsOut = outputFolder + "/romfs";
@@ -1056,6 +1201,7 @@ bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         QList<bdsp::SpoilerSection> sections = bdsp::encounterSpoiler(encounters, work, texts);
         sections += bdsp::wildSpoiler(wild, work, texts);
         sections += bdsp::itemSpoiler(items, texts);
+        sections += bdsp::pokemonDataSpoiler(dataResult, tower, work, texts);
         bdsp::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, sections, seedText,
                            check.version);
     }
@@ -1073,11 +1219,17 @@ bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         out << "Geänderte Gebiete mit wilden Pokémon: " << wildAreas << "\n";
         out << "Geänderte Items: " << items.fieldItems + items.hiddenItems << " (Boden/versteckt), " << items.shopItems
             << " (Läden), " << items.trainerItems << " (Trainer)\n";
+        out << "Pokémon-Daten: " << dataResult.types << " Typen, " << dataResult.stats << " Basiswerte, "
+            << dataResult.abilities << " Fähigkeiten, " << dataResult.learnsets << " Lernsets, " << dataResult.tms
+            << " TM-Listen, " << dataResult.evolutions.size() << " Tausch-Entwicklungen\n";
+        out << "Kampfturm-Pokémon: " << tower.pokemon.size() << "\n";
         if (!encounters.ips.isEmpty()) out << "ExeFS-Patch: exefs/" << encounters.ipsName << "\n";
         out << "\nTrainer-Einstellungen:\n" << QJsonDocument(bdsp::settingsToJson(trainerSettings)).toJson() << "\n";
         out << "Starter & Geschenke:\n" << QJsonDocument(bdsp::encounterSettingsToJson(encounterSettings)).toJson() << "\n";
         out << "Wilde Pokémon:\n" << QJsonDocument(bdsp::wildSettingsToJson(wildSettings)).toJson() << "\n";
-        out << "Items:\n" << QJsonDocument(bdsp::itemSettingsToJson(itemSettings)).toJson();
+        out << "Items:\n" << QJsonDocument(bdsp::itemSettingsToJson(itemSettings)).toJson() << "\n";
+        out << "Pokémon-Daten:\n" << QJsonDocument(bdsp::pokemonDataSettingsToJson(dataSettings)).toJson() << "\n";
+        out << "Kampfturm:\n" << QJsonDocument(bdsp::towerSettingsToJson(towerSettings)).toJson();
     }
     lastSeed = seedText;
     return true;
@@ -1311,6 +1463,8 @@ QJsonObject BdspRandomizerWindow::settingsJson() const {
     json["encounters"] = bdsp::encounterSettingsToJson(encounterSettings);
     json["wild"] = bdsp::wildSettingsToJson(wildSettings);
     json["items"] = bdsp::itemSettingsToJson(itemSettings);
+    json["data"] = bdsp::pokemonDataSettingsToJson(dataSettings);
+    json["tower"] = bdsp::towerSettingsToJson(towerSettings);
     return json;
 }
 
@@ -1334,10 +1488,20 @@ void BdspRandomizerWindow::applySettingsJson(const QJsonObject& json) {
         itemSettings = bdsp::ItemSettings();
         bdsp::itemSettingsFromJson(json.value("items").toObject(), itemSettings);
     }
+    if (json.value("data").isObject()) {
+        dataSettings = bdsp::PokemonDataSettings();
+        bdsp::pokemonDataSettingsFromJson(json.value("data").toObject(), dataSettings);
+    }
+    if (json.value("tower").isObject()) {
+        towerSettings = bdsp::TowerSettings();
+        bdsp::towerSettingsFromJson(json.value("tower").toObject(), towerSettings);
+    }
     refreshTrainerPage();
     refreshStartersPage();
     refreshWildPage();
     refreshItemsPage();
+    refreshDataPage();
+    refreshTowerPage();
     if (activeInfo) updateStatus();
 }
 

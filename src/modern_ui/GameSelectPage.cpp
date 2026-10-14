@@ -55,14 +55,14 @@ QList<GameSelectPage::GameInfo> GameSelectPage::games() {
          "assets/Supported Games/image1.jpeg", true},
         {1, "Pokémon Schwert und Schild",
          "Generation 8 · inklusive Erweiterungspass",
-         "Benötigt einen eigenen Dump mit Update 1.3.2 · Trainer mit Typ-Arenen, Starter, Geschenke, Begegnungen "
-         "und wilde Pokémon",
+         "Benötigt einen eigenen Dump mit Update 1.3.2 · Trainer mit Typ-Arenen, Starter, Geschenke, wilde Pokémon, "
+         "Dyna-Raids, Items, Pokémon-Daten, Dyna-Höhle und Kampfturm",
          "assets/Supported Games/image4.jpeg", true},
         {2, "Pokémon Strahlender Diamant und Leuchtende Perle",
          "Generation 8 · Remake von Diamant und Perl",
-         "Benötigt einen eigenen Dump (getestet mit Update 1.3.0) · Trainer mit Typ-Arenen und Top Vier, Starter, "
-         "Geschenke, Legendäre und Tausch · weitere Bereiche folgen",
-         "assets/Supported Games/image3.jpeg", true, true},
+         "Benötigt einen eigenen Dump (getestet mit Update 1.3.0) · Trainer mit Typ-Arenen, Starter, Geschenke, "
+         "Legendäre, wilde Pokémon mit Untergrund, Items, Läden, Pokémon-Daten und Kampfturm",
+         "assets/Supported Games/image3.jpeg", true},
     };
 }
 

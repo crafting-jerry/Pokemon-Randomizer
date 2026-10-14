@@ -23,6 +23,7 @@
 #include "bdsp_trainers.h"
 #include "bdsp_encounters.h"
 #include "bdsp_items.h"
+#include "bdsp_pokedata.h"
 #include "bdsp_wild.h"
 #include <QComboBox>
 
@@ -43,6 +44,8 @@ public:
     bdsp::EncounterSettings& encounterSettingsRef() { return encounterSettings; }
     bdsp::WildSettings& wildSettingsRef() { return wildSettings; }
     bdsp::ItemSettings& itemSettingsRef() { return itemSettings; }
+    bdsp::PokemonDataSettings& dataSettingsRef() { return dataSettings; }
+    bdsp::TowerSettings& towerSettingsRef() { return towerSettings; }
     void refreshAllPages();
     void showPage(int index);
 
@@ -137,6 +140,27 @@ private:
     QWidget* buildItemsPage();
     void refreshItemsPage();
 
+    // Pokemon-Daten
+    bdsp::PokemonDataSettings dataSettings;
+    QCheckBox* dataTradeEvos = nullptr;
+    QCheckBox* dataAbilities = nullptr;
+    QCheckBox* dataTypes = nullptr;
+    QCheckBox* dataStats = nullptr;
+    QCheckBox* dataFamilies = nullptr;
+    QCheckBox* dataMoves = nullptr;
+    modernui::SegmentedControl* dataTMs = nullptr;
+    QWidget* buildDataPage();
+    void refreshDataPage();
+
+    // Kampfturm
+    bdsp::TowerSettings towerSettings;
+    QCheckBox* towerBox = nullptr;
+    QCheckBox* towerEvolvedBox = nullptr;
+    QCheckBox* towerLegendsBox = nullptr;
+    QWidget* towerContent = nullptr;
+    QWidget* buildTowerPage();
+    void refreshTowerPage();
+
     QString lastSeed;
     bdsp::DumpCheck check;
     std::unique_ptr<bdsp::GameFiles> files;
@@ -146,7 +170,6 @@ private:
     QWidget* wrapPage(const QString& title, const QString& subtitle, QWidget* content);
     QWidget* buildStartPage();
     QWidget* buildTrainerPage();
-    QWidget* buildComingSoonPage(const QString& title, const QString& subtitle, const QString& text);
     QHBoxLayout* pathRow(QWidget* parent, const QString& caption, const QString& info, QLineEdit*& edit, bool romfs);
     void refreshTrainerPage();
     QStringList activeAreas() const;

@@ -542,7 +542,11 @@ void SwShRandomizerWindow::updateStatus() {
     if (files) {
         QString game = check.version == swsh::Version::Unknown ? QString("Schwert/Schild")
                                                                : swsh::versionName(check.version);
-        activeInfo->setText(areas.isEmpty() ? QString("Noch nichts ausgewählt") : "Aktiv: " + areas.join(", "));
+        // Lange Listen kuerzen, damit die Statusleiste das Fenster nicht verbreitert (alles steht im Tooltip)
+        QStringList shown = areas.mid(0, 6);
+        if (areas.size() > shown.size()) shown << QString("+ %1 weitere").arg(areas.size() - shown.size());
+        activeInfo->setText(areas.isEmpty() ? QString("Noch nichts ausgewählt") : "Aktiv: " + shown.join(", "));
+        activeInfo->setToolTip(areas.size() > 6 ? areas.join("\n") : QString());
         QString seed = seedEdit->text().trimmed();
         detailInfo->setText(game + "  ·  Seed: " + (seed.isEmpty() ? QString("zufällig") : seed));
         startButton->setEnabled(!areas.isEmpty());
