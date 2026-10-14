@@ -2,6 +2,7 @@
 #define SV_TRAINERS_H
 
 #include "sv_shared_class.h"
+#include "sv_spoiler_extras.h"
 #include "sv_trainer_smart.h"
 
 class svTrainers: public QObject, public SVShared{
@@ -35,6 +36,9 @@ class svTrainers: public QObject, public SVShared{
         // --- Spoiler-Log (HTML) ---
         bool writeSpoiler = true;
         void writeSpoilerLog();
+        // Zusaetzliche Abschnitte (Tera-Raids) und ob Trainer im Log stehen (aus = nur die Zusatz-Abschnitte)
+        QList<SvRaidSpoilerTable> raidSpoiler;
+        bool spoilerTrainers = true;
 
         // --- Typ-Themen-Feature ---
         // Trainer-Index -> Typ-ID (0=Normal ... 17=Fee, Reihenfolge wie teraTypes)

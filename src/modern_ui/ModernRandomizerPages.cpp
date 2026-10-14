@@ -59,7 +59,7 @@ QCheckBox* ModernRandomizerWindow::bindCheck(QBoxLayout* layout, const QString& 
     auto* box = new QCheckBox(text);
     box->setChecked(*field);
     layout->addLayout(rowWithInfo(box, info));
-    boolBindings.push_back({key, field, box, extra});
+    boolBindings.push_back({key, field, box, extra, *field});
     connect(box, &QCheckBox::toggled, this, [this, field, extra](bool checked) {
         *field = checked;
         if (extra) {
@@ -75,7 +75,7 @@ void ModernRandomizerWindow::bindLimiter(QBoxLayout* layout, const QString& key,
     auto* editor = new LimiterEditor(field);
     more->body()->addWidget(editor);
     layout->addWidget(more);
-    limiterBindings.push_back({key, field, editor});
+    limiterBindings.push_back({key, field, editor, *field});
 }
 
 Card* ModernRandomizerWindow::sectionCard(QBoxLayout* parentLayout, const QString& title, const QString& key,
@@ -510,9 +510,38 @@ QWidget* ModernRandomizerWindow::buildRaidsBossesPage() {
                 "Area Zero, Gierspenst, die Pokémon im Intro und weitere.", &b.randomize_bosses, body);
     bindLimiter(body, "bosses.allowed", &b.BossLimiter);
 
-    auto* raids = new Card("Tera-Raids", "noch nicht verfügbar");
-    raids->body()->addWidget(mutedLabel("Die Randomisierung von Tera-Raids ist im ursprünglichen Randomizer unfertig und wurde "
-                                        "dort nie ausgeführt. Sie kann in einem späteren Schritt neu gebaut werden.", raids));
+    // Tera-Raids
+    svRaids& r = code.svRandomizerRaids;
+    auto* raids = new Card("Tera-Raids");
+    raids->header()->addWidget(new InfoButton(
+        "Die Pokémon in den Tera-Raid-Kristallen (1★ bis 6★). Pro Raid-Tabelle (Region und Sternzahl) kommt jedes "
+        "Pokémon möglichst nur einmal vor. Level, Belohnungen, Fangbarkeit und editionsexklusive Raids bleiben, wie sie "
+        "sind. Die Boss-Pokémon bekommen starke Attacken passend zu ihrem Level, Wetter und Felder der Spezialaktionen "
+        "passen zum neuen Typ.\n\nRaid-Events (Gift-Raids aus dem Internet) werden nicht verändert.", raids));
+    auto* regionRow = new QWidget(raids);
+    auto* regions = new QVBoxLayout(regionRow);
+    regions->setContentsMargins(0, 0, 0, 0);
+    regions->setSpacing(6);
+    bindCheck(regions, "raids.paldea", "Paldea", "Die Tera-Raids im Hauptspiel.", &r.randomizePaldea);
+    bindCheck(regions, "raids.kitakami", "Kitakami (DLC 1)", "Die Tera-Raids in Kitakami.", &r.randomizeKitakami);
+    bindCheck(regions, "raids.blueberry", "Blaubeer-Akademie (DLC 2)", "Die Tera-Raids im Hort (Blaubeer-Akademie).",
+              &r.randomizeBlueberry);
+    raids->body()->addWidget(regionRow);
+    raids->body()->addWidget(mutedLabel("Regeln", raids));
+    bindCheck(raids->body(), "raids.levelAppropriate", "Level-passende Entwicklungen",
+              "In 1★- bis 4★-Raids tauchen keine Pokémon auf, die auf diesem Level noch nicht entwickelt wären "
+              "(1★ Lv. 12, 2★ Lv. 20, 3★ Lv. 35, 4★ Lv. 45). 5★- und 6★-Raids haben nur Endstufen.",
+              &r.levelAppropriate);
+    bindCheck(raids->body(), "raids.sameType", "Gleicher Typ wie das Original",
+              "Optional: Das neue Pokémon teilt einen Typ mit dem alten.", &r.sameType);
+    bindCheck(raids->body(), "raids.similarStrength", "Ähnlich starke Pokémon",
+              "Optional: ungefähr dieselbe Basiswerte-Summe wie das alte Pokémon.", &r.similarStrength);
+    bindCheck(raids->body(), "raids.forceShiny", "Alle Raid-Pokémon schillernd",
+              "Jedes Raid-Pokémon ist schillernd (Shiny). Ohne diese Option gilt die normale Shiny-Chance des Spiels.",
+              &r.forceShiny);
+    raids->body()->addWidget(mutedLabel("Legendäre sind standardmäßig ausgeschlossen – unter „Erlaubte Pokémon "
+                                        "einschränken“ kannst du sie pro Generation erlauben.", raids));
+    bindLimiter(raids->body(), "raids.allowed", &r.raidPokemon);
     layout->addWidget(raids);
 
     return wrapPage("Raids und Bosse", "Besondere Kämpfe außerhalb der normalen Trainer.", content);
@@ -534,6 +563,7 @@ QStringList ModernRandomizerWindow::activeAreas() const {
     if (code.svRandomizerItems.randomizeItems) areas << "Items";
     if (trainersEnabled && (regionPaldea || regionKitakami || regionBlueberry)) areas << "Trainer";
     if (code.svRandomizerBosses.randomize_bosses) areas << "Bosse";
+    if (code.svRandomizerRaids.anyEnabled()) areas << "Tera-Raids";
     return areas;
 }
 

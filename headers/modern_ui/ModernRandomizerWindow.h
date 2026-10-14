@@ -115,11 +115,13 @@ private:
         bool* field;
         QCheckBox* box;
         std::function<void(bool)> extra;
+        bool defaultValue = false; // Wert, wenn eine Vorlage den Schluessel nicht kennt
     };
     struct LimiterBinding {
         QString key;
         allowedPokemonLimiter* field;
         LimiterEditor* editor;
+        allowedPokemonLimiter defaultValue; // Wert, wenn eine Vorlage den Schluessel nicht kennt
     };
     std::vector<BoolBinding> boolBindings;
     std::vector<LimiterBinding> limiterBindings;

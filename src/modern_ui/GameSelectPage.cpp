@@ -51,7 +51,7 @@ QList<GameSelectPage::GameInfo> GameSelectPage::games() {
     return {
         {0, "Pokémon Karmesin und Purpur",
          "Generation 9 · inklusive „Die türkisgrüne Maske“ und „Die Indigoblaue Scheibe“",
-         "Trainer, wilde Pokémon, Starter, Geschenke, Items, Pokémon-Daten und Bosskämpfe",
+         "Trainer, wilde Pokémon, Starter, Geschenke, Items, Pokémon-Daten, Tera-Raids und Bosskämpfe",
          "assets/Supported Games/image1.jpeg", true},
         {1, "Pokémon Schwert und Schild",
          "Generation 8 · inklusive Erweiterungspass",

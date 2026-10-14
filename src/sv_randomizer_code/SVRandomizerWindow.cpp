@@ -182,6 +182,21 @@ bool SVRandomizerWindow::runRandomizerRuns(bool showFinalMessage, QString* error
     std::seed_seq seq{ seed_low, seed_high };
     randNum = QRandomGenerator(seq);
 
+    // Jeder Bereich bekommt einen eigenen, aus dem Seed abgeleiteten Zufallsgenerator.
+    // (Vorher blieben die Generatoren der Bereiche ungesetzt - der Seed hatte dann keine Wirkung.)
+    auto seedModule = [&](QRandomGenerator& rng, quint32 salt) {
+        std::seed_seq moduleSeq{seed_low, seed_high, salt};
+        rng = QRandomGenerator(moduleSeq);
+    };
+    seedModule(randomizer.svRandomizerStarters.randNum, 1);
+    seedModule(randomizer.svRandomizerPersonal.randNum, 2);
+    seedModule(randomizer.svRandomizerItems.randNum, 3);
+    seedModule(randomizer.svRandomizerFixed.randNum, 4);
+    seedModule(randomizer.svRandomizerWilds.randNum, 5);
+    seedModule(randomizer.svRandomizerRaids.randNum, 6);
+    seedModule(randomizer.svRandomizerTrainers.randNum, 7);
+    seedModule(randomizer.svRandomizerBosses.randNum, 8);
+
     // Eigener Unterordner fuer Karmesin/Purpur: nur die alten Ergebnisse (Randomizer-1, -2, ...) werden
     // geloescht, Vorlagen und die Ordner der anderen Spiele bleiben erhalten
     const QString outputFolderPath = QDir::current().filePath("Randomizers-Output/Karmesin-Purpur");
@@ -241,6 +256,19 @@ bool SVRandomizerWindow::runRandomizerRuns(bool showFinalMessage, QString* error
             randomizer.svRandomizerWilds.randomize();
         }
 
+        // Tera-Raids (vor den Trainern, damit sie im Spoiler-Log der Trainer mit erscheinen)
+        randomizer.svRandomizerTrainers.raidSpoiler.clear();
+        if (randomizer.svRandomizerRaids.anyEnabled()) {
+            randomizer.svRandomizerRaids.personalOverride = randomizer.svRandomizerTrainers.personalOverride;
+            QString raidError;
+            if (!randomizer.svRandomizerRaids.randomize(&raidError)) {
+                if (progressBox) progressBox->hide();
+                if (error) *error = raidError;
+                return false;
+            }
+            randomizer.svRandomizerTrainers.raidSpoiler = randomizer.svRandomizerRaids.spoilerTables;
+        }
+
         bool paldeaTrainers = false;
         bool kitakamiTrainers = false;
         bool blueberryTrainers = false;
@@ -253,6 +281,15 @@ bool SVRandomizerWindow::runRandomizerRuns(bool showFinalMessage, QString* error
 
         if (trainerBosses == true){
             randomizer.svRandomizerBosses.randomizeBosses();
+        }
+
+        // Nur Raids randomisiert: Spoiler-Log trotzdem schreiben (ohne Trainer)
+        if (randomizeTrainers == false && randomizer.svRandomizerRaids.anyEnabled() &&
+            randomizer.svRandomizerTrainers.writeSpoiler) {
+            randomizer.svRandomizerTrainers.spoilerTrainers = false;
+            randomizer.svRandomizerTrainers.smartData = TrainerSmartData(); // mit den aktuellen Pokemon-Daten neu aufbauen
+            randomizer.svRandomizerTrainers.writeSpoilerLog();
+            randomizer.svRandomizerTrainers.spoilerTrainers = true;
         }
 
         if(randomizer.auto_patch == true){

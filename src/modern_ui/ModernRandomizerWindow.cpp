@@ -269,7 +269,7 @@ QWidget* ModernRandomizerWindow::buildStartPage() {
     spoilerLog = new QCheckBox("Spoiler-Log erstellen", general);
     spoilerLog->setChecked(true);
     general->body()->addLayout(rowWithInfo(spoilerLog,
-        "Erstellt zusätzlich die Datei Spoiler-Log.html mit allen Trainer-Teams. Öffnet sich im Browser und ist durchsuchbar."));
+        "Erstellt zusätzlich die Datei Spoiler-Log.html mit allen Trainer-Teams und Tera-Raids. Öffnet sich im Browser und ist durchsuchbar."));
     general->body()->addWidget(mutedLabel("Bleibt der Seed leer, wird ein zufälliger ausgewürfelt und nach dem Randomisieren "
                                           "angezeigt (auch in der Info.txt) – so kannst du ein Ergebnis später nachbauen.",
                                           general));
@@ -780,12 +780,12 @@ void ModernRandomizerWindow::settingsFromJson(const QJsonObject& o) {
     QJsonObject pagesObject = o["pages"].toObject();
     QJsonObject bools = pagesObject["options"].toObject();
     for (auto& b : boolBindings) {
-        // Fehlende Schluessel (aeltere Vorlagen) setzen die Option zurueck
-        *b.field = bools[b.key].toBool(false);
+        // Fehlende Schluessel (aeltere Vorlagen) setzen die Option auf ihren Standardwert zurueck
+        *b.field = bools[b.key].toBool(b.defaultValue);
     }
     QJsonObject limiters = pagesObject["allowedPokemon"].toObject();
     for (auto& l : limiterBindings) {
-        *l.field = allowedPokemonLimiter();
+        *l.field = l.defaultValue;
         if (limiters.contains(l.key)) {
             limiterFromJson(limiters[l.key].toObject(), *l.field);
         }

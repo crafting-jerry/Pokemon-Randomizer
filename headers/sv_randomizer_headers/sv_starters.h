@@ -3,7 +3,7 @@
 
 #include "sv_shared_class.h"
 
-class svStarters: public QObject, SVShared{
+class svStarters: public QObject, public SVShared{
     Q_OBJECT
 public:
     svStarters();

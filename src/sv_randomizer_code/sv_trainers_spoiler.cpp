@@ -4,6 +4,7 @@
 // Ausgabe: output/Spoiler-Log.html
 // ---------------------------------------------------------------------------
 
+#include "headers/sv_randomizer_headers/sv_trainer_smart.h"
 #include "headers/sv_randomizer_headers/sv_trainers.h"
 
 #include <QDateTime>
@@ -193,7 +194,14 @@ void svTrainers::writeSpoilerLog() {
     QHash<QString, int> sectionCount;
     int totalTrainers = 0;
 
-    const json& values = trainersData["values"];
+    // Ohne randomisierte Trainer (nur Raids) bleiben die Trainer-Abschnitte leer
+    const json noTrainers = json::array();
+    const json& values = spoilerTrainers ? trainersData["values"] : noTrainers;
+    if (!smartData.isReady()) {
+        json wazaTable = readJsonQFile("SV_FLATBUFFERS/SV_PERSONAL/waza_array_clean.json");
+        smartData.build(svGameData(pokemonMapping, personalOverride != nullptr ? *personalOverride : pokemonPersonalData,
+                                   wazaTable, moveList));
+    }
     for (int index = 0; index < static_cast<int>(values.size()); index++) {
         const json& entry = values[index];
         TrainerLabel label = labels.value(index, {"Sonstige Trainer", "Trainer"});
@@ -304,6 +312,83 @@ void svTrainers::writeSpoilerLog() {
         sectionCount[label.category] += 1;
     }
 
+    // --- Tera-Raids ---
+    auto teraIndexOf = [&](const QString& gem) -> int {
+        for (int t = 0; t < teraTypes.size(); t++) {
+            if (teraTypes[t].compare(gem, Qt::CaseInsensitive) == 0) return t;
+        }
+        return -1;
+    };
+    QString raidHtml;
+    int totalRaids = 0;
+    QStringList raidRegions;
+    for (const SvRaidSpoilerTable& table : raidSpoiler) {
+        if (!raidRegions.contains(table.region)) raidRegions << table.region;
+    }
+    for (const QString& region : raidRegions) {
+        QString body;
+        int count = 0;
+        for (const SvRaidSpoilerTable& table : raidSpoiler) {
+            if (table.region != region || table.mons.isEmpty()) continue;
+            QString cards;
+            QString searchText = "raid tera " + region + " " + QString::number(table.stars) + "★";
+            for (const SvRaidSpoilerMon& m : table.mons) {
+                const QString name = pokemonName(m.natdex);
+                const QString formText = formName(m.natdex, m.form);
+                const QString oldName = pokemonName(m.oldNatdex);
+                const QPair<int,int> types = smartData.types(m.natdex, m.form);
+                QStringList moveTexts;
+                for (int id : m.moves) moveTexts.append(moveName(id));
+                const bool isDefault = m.moves.isEmpty();
+                if (isDefault) {
+                    for (int id : smartData.defaultMoveset(m.natdex, m.form, table.level)) moveTexts.append(moveName(id));
+                }
+                searchText += " " + name + " " + formText + " " + oldName + " " + moveTexts.join(" ");
+
+                QString card = "<div class=\"mon\"><div class=\"mon-head\"><span class=\"mon-name\">" + esc(name) + "</span>";
+                if (m.shiny) card += "<span class=\"shiny\" title=\"Schillernd\">✦</span>";
+                card += "<span class=\"lvl\">Lv. " + QString::number(table.level) + "</span></div>";
+                if (!formText.isEmpty()) card += "<div class=\"form\">" + esc(formText) + "</div>";
+                card += "<div class=\"types\"><span class=\"type t" + QString::number(types.first) + "\">" +
+                        esc(typeName(types.first)) + "</span>";
+                if (types.second != types.first) {
+                    card += "<span class=\"type t" + QString::number(types.second) + "\">" + esc(typeName(types.second)) + "</span>";
+                }
+                card += "</div>";
+                const int tera = teraIndexOf(m.tera);
+                if (tera >= 0) {
+                    card += "<div class=\"meta\">Tera: <span class=\"type t" + QString::number(tera) + "\">" +
+                            esc(typeName(tera)) + "</span></div>";
+                } else if (m.tera == "DEFAULT") {
+                    card += "<div class=\"meta\">Tera: eigener Typ</div>";
+                } else {
+                    card += "<div class=\"meta\">Tera: zufällig</div>";
+                }
+                if (!m.edition.isEmpty()) card += "<div class=\"meta\">nur " + esc(m.edition) + "</div>";
+                card += "<ul class=\"moves\">";
+                for (const QString& mv : moveTexts) card += "<li>" + esc(mv) + "</li>";
+                if (moveTexts.isEmpty()) card += "<li class=\"hint\">keine Daten</li>";
+                card += "</ul>";
+                if (isDefault && !moveTexts.isEmpty()) card += "<div class=\"hint\">Spiel-Standard</div>";
+                card += "<div class=\"hint\">statt " + esc(oldName) + "</div></div>";
+                cards += card;
+            }
+            QString stars;
+            for (int k = 0; k < table.stars; k++) stars += "★";
+            body += "<article class=\"trainer\" data-search=\"" + esc(searchText.toLower()) + "\"><header><h3>" +
+                    stars + " Tera-Raids</h3><div class=\"sub\">" + esc(region) + " · Lv. " + QString::number(table.level) +
+                    " · " + QString::number(table.mons.size()) + " Pokémon</div></header><div class=\"team\">" + cards +
+                    "</div></article>";
+            count += table.mons.size();
+        }
+        if (count == 0) continue;
+        totalRaids += count;
+        const QString category = "Tera-Raids · " + region;
+        raidHtml += "<details class=\"section\" data-cat=\"" + esc(category) + "\" open><summary>" + esc(category) +
+                    "<span class=\"count\">" + QString::number(count) + " Raid-Pokémon</span></summary><div class=\"section-body\">" +
+                    body + "</div></details>";
+    }
+
     // --- Seite zusammensetzen ---
     QString html;
     html += R"(<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
@@ -348,7 +433,8 @@ details.section>summary .count{color:var(--muted);font-weight:400;font-size:14px
 <div class="top"><h1>Spoiler-Log</h1>)";
 
     html += "<div class=\"info\">Erstellt am " + QDateTime::currentDateTime().toString("dd.MM.yyyy 'um' HH:mm") +
-            " · " + QString::number(totalTrainers) + " Trainer</div>";
+            (spoilerTrainers ? " · " + QString::number(totalTrainers) + " Trainer" : QString()) +
+            (totalRaids > 0 ? " · " + QString::number(totalRaids) + " Raid-Pokémon" : QString()) + "</div>";
     html += R"(<div class="controls"><input id="search" type="search" placeholder="Suchen: Trainer, Pokémon, Attacke, Item …" autocomplete="off">
 <button class="chip" id="expand">Alle aufklappen</button><button class="chip" id="collapse">Alle zuklappen</button></div>
 <div class="controls" id="chips" style="margin-top:10px"></div></div><main>)";
@@ -362,6 +448,7 @@ details.section>summary .count{color:var(--muted);font-weight:400;font-size:14px
         html += "<summary>" + esc(category) + "<span class=\"count\">" + QString::number(sectionCount.value(category)) + " Trainer</span></summary>";
         html += "<div class=\"section-body\">" + sectionHtml.value(category) + "</div></details>";
     }
+    html += raidHtml;
 
     html += R"(<div id="empty" class="hidden">Keine Treffer.</div></main>
 <script>

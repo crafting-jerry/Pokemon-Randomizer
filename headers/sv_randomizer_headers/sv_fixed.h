@@ -3,7 +3,7 @@
 
 #include "sv_shared_class.h"
 
-class svFixed: public QObject, SVShared{
+class svFixed: public QObject, public SVShared{
     Q_OBJECT
 public:
     svFixed();
