@@ -220,6 +220,26 @@ bool BundleData::save(const QString& outRomfs, const QStringList& changedTables,
     return true;
 }
 
+// ------------------------------------------------------------- Skripte
+
+bool ScriptData::ensureLoaded(const QString& romfs, QString* error) {
+    if (loaded) return true;
+    QString err;
+    if (!bundle.loadWhere(romfs, path::EvScript, [](const UValue& v) { return v.has("Scripts"); }, &err)) {
+        if (error) *error = "Die Skripte (ev_script) konnten nicht gelesen werden:\n" + err;
+        return false;
+    }
+    loaded = true;
+    return true;
+}
+
+bool ScriptData::save(const QString& outRomfs, QString* error) const {
+    if (!loaded || changed.isEmpty()) return true;
+    QStringList names(changed.begin(), changed.end());
+    names.sort();
+    return bundle.save(outRomfs, names, error);
+}
+
 // ----------------------------------------------------------- Personal
 
 namespace {
@@ -512,6 +532,7 @@ GameFiles& GameFiles::operator=(const GameFiles& other) {
     learnsetsChanged = other.learnsetsChanged;
     evolutionsChanged = other.evolutionsChanged;
     tradesChanged = other.tradesChanged;
+    shopsChanged = other.shopsChanged;
     attachTables();
     return *this;
 }
@@ -526,7 +547,7 @@ bool GameFiles::load(const QString& romfs, QStringList* errors) {
     QString err;
     if (!personalBundle.load(romfs, path::Personal,
                              {"PersonalTable", "EvolveTable", "WazaOboeTable", "WazaTable", "ItemTable"}, &err) ||
-        !masterBundle.load(romfs, path::Master, {"TrainerTable", "LocalKoukanData"}, &err)) {
+        !masterBundle.load(romfs, path::Master, {"TrainerTable", "LocalKoukanData", "ShopTable"}, &err)) {
         if (errors) *errors << err;
         return false;
     }
@@ -569,6 +590,7 @@ bool GameFiles::save(const QString& outRomfs, QString* error) {
         masterTables << "TrainerTable";
     }
     if (tradesChanged) masterTables << "LocalKoukanData";
+    if (shopsChanged) masterTables << "ShopTable";
     if (!masterTables.isEmpty() && !masterBundle.save(outRomfs, masterTables, error)) return false;
     return true;
 }
@@ -740,6 +762,28 @@ QString GameTexts::trainerLabel(const Trainer& trainer) const {
     const QString name = trainerNames.value(trainer.nameLabel);
     const QString label = (cls + " " + name).trimmed();
     return label.isEmpty() ? QString("Trainer %1").arg(trainer.index) : label;
+}
+
+QHash<int, QString> zoneNames(const QString& romfs, const UValue* mapInfo) {
+    QHash<int, QString> names;
+    QString err;
+    BundleData settings;
+    if (mapInfo == nullptr) {
+        if (!settings.load(romfs, path::GameSettings, {"MapInfo"}, &err)) return names;
+        mapInfo = &settings.table("MapInfo");
+    }
+    BundleData msg;
+    const bool german = QFileInfo::exists(romfs + "/" + path::MessageGerman);
+    const QString table = german ? "german_dp_fld_areaname" : "english_dp_fld_areaname";
+    QHash<QString, QString> labels;
+    if (msg.load(romfs, german ? path::MessageGerman : path::MessageEnglish, {table}, &err)) {
+        labels = messageLabels(msg.table(table));
+    }
+    for (const UValue& z : (*mapInfo)["ZoneData"].list()) {
+        const QString name = labels.value(z["PokePlaceName"].toString());
+        if (!name.isEmpty()) names.insert(z["ZoneID"].toInt(), name);
+    }
+    return names;
 }
 
 } // namespace bdsp

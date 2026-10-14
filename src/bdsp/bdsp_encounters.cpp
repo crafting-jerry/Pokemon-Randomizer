@@ -201,8 +201,8 @@ QList<StarterChoice> availablePokemon(const GameFiles& files) {
 
 // ------------------------------------------------------------- Randomizer
 
-bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& files, const EncounterSettings& s,
-                         quint64 seed, EncounterResult& result, QString* error) {
+bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& files, ScriptData& scripts,
+                         const EncounterSettings& s, quint64 seed, EncounterResult& result, QString* error) {
     result = EncounterResult();
     if (!s.anyEnabled()) return true;
     auto fail = [error](const QString& message) {
@@ -217,10 +217,9 @@ bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& 
     smart.build(files.toGameData());
 
     QString err;
-    if (!result.scripts.loadWhere(romfs, path::EvScript, [](const UValue& v) { return v.has("Scripts"); }, &err)) {
-        return fail("Die Skripte (ev_script) konnten nicht gelesen werden:\n" + err);
-    }
-    QSet<QString> changedScripts;
+    if (!scripts.ensureLoaded(romfs, &err)) return fail(err);
+    QSet<QString>& changedScripts = scripts.changed;
+    const int changedBefore = changedScripts.size();
 
     ExeFsPatcher exe;
     bool exeLoaded = false;
@@ -282,8 +281,8 @@ bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& 
             return species;
         };
         // Skripte: Vergleiche mit dem Starter des Spielers (Rivale, Lucius/Lucia, Labor, Accessoires ...)
-        for (const QString& zone : result.scripts.tableNames()) {
-            UValue& data = result.scripts.table(zone);
+        for (const QString& zone : scripts.bundle.tableNames()) {
+            UValue& data = scripts.bundle.table(zone);
             for (UValue& script : data["Scripts"].list()) {
                 QSet<qint64> works;
                 for (UValue& cmd : script["Commands"].list()) {
@@ -359,8 +358,8 @@ bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& 
             result.changes.append({1, 0, 133, eevee, 5, "Bebe in Herzhofen"});
         }
         // Eier (Skript): nur Basis-Pokemon, damit das Ei sinnvoll schluepft
-        for (const QString& zone : result.scripts.tableNames()) {
-            UValue& data = result.scripts.table(zone);
+        for (const QString& zone : scripts.bundle.tableNames()) {
+            UValue& data = scripts.bundle.table(zone);
             for (UValue& script : data["Scripts"].list()) {
                 for (UValue& cmd : script["Commands"].list()) {
                     std::vector<UValue>& args = cmd["Arg"].list();
@@ -384,8 +383,8 @@ bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& 
         struct Found { QString zone; int species; int level; };
         QList<Found> found;
         QSet<QString> zones;
-        for (const QString& zone : result.scripts.tableNames()) {
-            const UValue& data = result.scripts.table(zone);
+        for (const QString& zone : scripts.bundle.tableNames()) {
+            const UValue& data = scripts.bundle.table(zone);
             for (const UValue& script : data["Scripts"].list()) {
                 for (const UValue& cmd : script["Commands"].list()) {
                     const int id = cmdId(cmd);
@@ -426,7 +425,7 @@ bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& 
         }
         // Alle zugehoerigen Befehle in diesen Karten anpassen (Kampf, Ruf, Wiederholung, Name, Version, Team-Pruefung)
         for (const QString& zone : zones) {
-            UValue& data = result.scripts.table(zone);
+            UValue& data = scripts.bundle.table(zone);
             for (UValue& script : data["Scripts"].list()) {
                 // Ruf und Name nur in Skripten mit dem Kampf selbst (nicht z. B. Selfe/Tobutz in Zwischenszenen)
                 bool hasBattle = false;
@@ -489,8 +488,7 @@ bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& 
         files.tradesChanged = true;
     }
 
-    result.changedScripts = QStringList(changedScripts.begin(), changedScripts.end());
-    result.changedScripts.sort();
+    result.changedScripts = changedScripts.size() - changedBefore;
     if (exeLoaded && exe.hasPatches()) {
         result.ips = exe.ips();
         result.ipsName = exe.buildIdName() + ".ips";
@@ -500,7 +498,6 @@ bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& 
 
 bool writeEncounters(const QString& outFolder, const EncounterResult& result, QString* error) {
     const QString romfsOut = outFolder + "/romfs";
-    if (!result.changedScripts.isEmpty() && !result.scripts.save(romfsOut, result.changedScripts, error)) return false;
     if (!result.metadata.isEmpty() &&
         !writeFile(romfsOut + "/Data/Managed/Metadata/global-metadata.dat", result.metadata)) {
         if (error) *error = "global-metadata.dat konnte nicht geschrieben werden.";

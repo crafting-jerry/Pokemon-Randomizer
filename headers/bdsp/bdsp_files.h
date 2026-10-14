@@ -16,6 +16,7 @@
 #include <QPair>
 #include <QString>
 #include <QStringList>
+#include <QSet>
 #include <functional>
 
 #include "bdsp_unity.h"
@@ -78,6 +79,15 @@ private:
     std::shared_ptr<UnityBundle> bundle; // haelt die Type-Trees der Werte am Leben
     QHash<QString, int> objectIndex;
     QHash<QString, UValue> values;
+};
+
+// Alle Skripte (ev_script): werden einmal geladen, von mehreren Bereichen geaendert und einmal gespeichert
+struct ScriptData {
+    BundleData bundle;
+    QSet<QString> changed;
+    bool loaded = false;
+    bool ensureLoaded(const QString& romfs, QString* error);
+    bool save(const QString& outRomfs, QString* error) const;
 };
 
 // ----------------------------------------------------------- Pokemon-Daten
@@ -236,6 +246,7 @@ public:
     bool learnsetsChanged = false;
     bool evolutionsChanged = false;
     bool tradesChanged = false; // LocalKoukanData (Tausch) in masterdatas
+    bool shopsChanged = false;  // ShopTable (Laeden) in masterdatas
 
     // Schreibt alle geaenderten Bundles nach outRomfs
     bool save(const QString& outRomfs, QString* error);
@@ -263,6 +274,10 @@ struct GameTexts {
 // Liest eine Text-Tabelle (MsgDataFile) aus einem Message-Bundle: Index -> Text
 QStringList messageLines(const UValue& msg);
 QHash<QString, QString> messageLabels(const UValue& msg);
+
+// Ortsnamen je Zone (MapInfo.ZoneData[zone].PokePlaceName -> Spieltext).
+// mapInfo: bereits geladene MapInfo-Tabelle aus gamesettings; nullptr = selbst laden
+QHash<int, QString> zoneNames(const QString& romfs, const UValue* mapInfo = nullptr);
 
 } // namespace bdsp
 

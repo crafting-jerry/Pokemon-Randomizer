@@ -59,8 +59,7 @@ struct EncounterChange {
 
 struct EncounterResult {
     QList<EncounterChange> changes;
-    BundleData scripts;          // ev_script mit den geaenderten Skripten
-    QStringList changedScripts;
+    int changedScripts = 0;      // Anzahl geaenderter Skripte
     QByteArray ips;              // exefs-Patch (leer = keiner)
     QString ipsName;             // <Build-ID>.ips
     QByteArray metadata;         // geaenderte global-metadata.dat (leer = unveraendert)
@@ -71,10 +70,11 @@ struct EncounterResult {
 QList<StarterChoice> availablePokemon(const GameFiles& files);
 
 // Veraendert files (Tausch, Teams von Rivale/Lucius/Lucia). exefs wird fuer die Starter und Evoli gebraucht.
-bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& files, const EncounterSettings& settings,
-                         quint64 seed, EncounterResult& result, QString* error);
+// Skript-Aenderungen landen in scripts (wird spaeter einmal gespeichert).
+bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& files, ScriptData& scripts,
+                         const EncounterSettings& settings, quint64 seed, EncounterResult& result, QString* error);
 
-// Schreibt ev_script, global-metadata.dat (romfs) und den IPS-Patch (exefs) nach outFolder
+// Schreibt global-metadata.dat (romfs) und den IPS-Patch (exefs) nach outFolder
 bool writeEncounters(const QString& outFolder, const EncounterResult& result, QString* error);
 
 QList<SpoilerSection> encounterSpoiler(const EncounterResult& result, const GameFiles& files, const GameTexts& texts);

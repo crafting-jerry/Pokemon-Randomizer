@@ -22,6 +22,8 @@
 #include "bdsp_files.h"
 #include "bdsp_trainers.h"
 #include "bdsp_encounters.h"
+#include "bdsp_items.h"
+#include "bdsp_wild.h"
 #include <QComboBox>
 
 class SwShTrainerEditor;
@@ -39,6 +41,8 @@ public:
     bool randomizeTo(const QString& outputFolder, QString* error);
     bdsp::TrainerSettings& trainerSettingsRef() { return trainerSettings; }
     bdsp::EncounterSettings& encounterSettingsRef() { return encounterSettings; }
+    bdsp::WildSettings& wildSettingsRef() { return wildSettings; }
+    bdsp::ItemSettings& itemSettingsRef() { return itemSettings; }
     void refreshAllPages();
     void showPage(int index);
 
@@ -109,6 +113,29 @@ private:
     void refreshStartersPage();
     void fillStarterCombos();
     bool lastHadExefsPatch = false;
+
+    // Wilde Pokemon
+    bdsp::WildSettings wildSettings;
+    QCheckBox* wildSwitch = nullptr;
+    QWidget* wildContent = nullptr;
+    modernui::SegmentedControl* wildMode = nullptr;
+    QCheckBox* wildLevel = nullptr;
+    QCheckBox* wildType = nullptr;
+    QCheckBox* wildStrength = nullptr;
+    QCheckBox* wildLegends = nullptr;
+    QCheckBox* wildUnderground = nullptr;
+    QWidget* buildWildPage();
+    void refreshWildPage();
+
+    // Items und Laeden
+    bdsp::ItemSettings itemSettings;
+    modernui::SegmentedControl* itemMode = nullptr;
+    QCheckBox* itemField = nullptr;
+    QCheckBox* itemHidden = nullptr;
+    QCheckBox* itemShops = nullptr;
+    QCheckBox* itemTrainers = nullptr;
+    QWidget* buildItemsPage();
+    void refreshItemsPage();
 
     QString lastSeed;
     bdsp::DumpCheck check;

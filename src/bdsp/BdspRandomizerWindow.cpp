@@ -22,6 +22,7 @@
 #include <QStyle>
 #include <QTextStream>
 #include <QUrl>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -53,10 +54,8 @@ BdspRandomizerWindow::BdspRandomizerWindow(QWidget* parent) : QWidget(parent) {
     pages->addWidget(buildStartPage());
     pages->addWidget(buildTrainerPage());
     pages->addWidget(buildStartersPage());
-    pages->addWidget(buildComingSoonPage("Wilde Pokémon", "Gras, Höhlen, Wasser, Angeln, Honigbäume und der Große Sumpf.",
-        "Dieser Bereich folgt in einem der nächsten Schritte."));
-    pages->addWidget(buildComingSoonPage("Items", "Items auf dem Boden, versteckte Items und Läden.",
-        "Dieser Bereich folgt in einem der nächsten Schritte."));
+    pages->addWidget(buildWildPage());
+    pages->addWidget(buildItemsPage());
     pages->addWidget(buildComingSoonPage("Pokémon-Daten", "Fähigkeiten, Typen, Basiswerte, Attacken und Entwicklungen.",
         "Dieser Bereich folgt in einem der nächsten Schritte."));
     middle->addWidget(pages, 1);
@@ -254,8 +253,8 @@ QWidget* BdspRandomizerWindow::buildStartPage() {
     spoilerLog = new QCheckBox("Spoiler-Log erstellen", general);
     spoilerLog->setChecked(true);
     general->body()->addLayout(rowWithInfo(spoilerLog,
-        "Erstellt zusätzlich die Datei Spoiler-Log.html mit allen Trainer-Teams. Öffnet sich im Browser und ist "
-        "durchsuchbar."));
+        "Erstellt zusätzlich die Datei Spoiler-Log.html mit allen Trainer-Teams, Startern, wilden Pokémon, Items und "
+        "Läden. Öffnet sich im Browser und ist durchsuchbar."));
     layout->addWidget(general);
 
     // Ausgabe
@@ -481,6 +480,10 @@ QStringList BdspRandomizerWindow::activeAreas() const {
     if (encounterSettings.gifts) areas << "Geschenke";
     if (encounterSettings.statics) areas << "Begegnungen";
     if (encounterSettings.trades) areas << "Tausch";
+    if (wildSettings.enabled) areas << (wildSettings.underground ? "Wilde Pokémon + Untergrund" : "Wilde Pokémon");
+    if (itemSettings.fieldItems || itemSettings.hiddenItems) areas << "Items";
+    if (itemSettings.shops) areas << "Läden";
+    if (itemSettings.trainerItems) areas << "Trainer-Items";
     return areas;
 }
 
@@ -505,6 +508,8 @@ void BdspRandomizerWindow::updateStatus() {
 void BdspRandomizerWindow::refreshAllPages() {
     refreshTrainerPage();
     refreshStartersPage();
+    refreshWildPage();
+    refreshItemsPage();
     updateStatus();
 }
 
@@ -704,6 +709,172 @@ void BdspRandomizerWindow::refreshStartersPage() {
     starterWishBox->setVisible(encounterSettings.starterMode == 2);
 }
 
+// ---------------------------------------------------------- Wilde Pokemon
+
+namespace {
+QCheckBox* addOption(QVBoxLayout* layout, QWidget* parent, const QString& text, const QString& info, bool* target,
+                     QObject* context, std::function<void()> after = nullptr) {
+    auto* box = new QCheckBox(text, parent);
+    layout->addLayout(rowWithInfo(box, info));
+    QObject::connect(box, &QCheckBox::toggled, context, [target, after](bool on) {
+        *target = on;
+        if (after) after();
+    });
+    return box;
+}
+} // namespace
+
+QWidget* BdspRandomizerWindow::buildWildPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(8);
+        wildSwitch = new QCheckBox("Wilde Pokémon randomisieren", content);
+        wildSwitch->setObjectName("masterSwitch");
+        row->addWidget(wildSwitch);
+        row->addWidget(new InfoButton("Pokémon im hohen Gras, in Höhlen, beim Surfen und Angeln – auf allen Routen und in "
+                                      "allen Höhlen. Dazu Schwärme, Tag/Nacht-Pokémon, der Poké-Radar, die Pokémon aus den "
+                                      "GBA-Spielen (Einschub-Slots), die Honigbäume, das Große Moor und der Trophäengarten.",
+                                      content));
+        row->addStretch();
+        layout->addLayout(row);
+        connect(wildSwitch, &QCheckBox::toggled, this, [this](bool on) {
+            wildSettings.enabled = on;
+            wildContent->setEnabled(on);
+            updateStatus();
+        });
+    }
+
+    wildContent = new QWidget(content);
+    auto* inner = new QVBoxLayout(wildContent);
+    inner->setContentsMargins(0, 0, 0, 0);
+    inner->setSpacing(12);
+    layout->addWidget(wildContent);
+
+    auto* card = new Card("Einstellungen", QString(), wildContent);
+    {
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("Austausch", card));
+        row->addWidget(new InfoButton(
+            "Pro Gebiet: In jedem Gebiet wird jedes Pokémon durch ein festes anderes ersetzt. Ein Gebiet hat also "
+            "weiterhin eine eigene, überschaubare Auswahl.\n"
+            "Global 1:1: Jedes Pokémon wird überall durch dasselbe andere ersetzt (z. B. jedes Bidiza wird zu Evoli).\n"
+            "Jeder Platz: Jeder Eintrag wird einzeln ausgewürfelt – die größte Vielfalt.", card));
+        row->addStretch();
+        wildMode = new SegmentedControl({"Pro Gebiet", "Global 1:1", "Jeder Platz"}, card);
+        row->addWidget(wildMode);
+        card->body()->addLayout(row);
+        connect(wildMode, &SegmentedControl::changed, this, [this](int v) { wildSettings.mode = v; });
+    }
+    wildLevel = addOption(card->body(), card, "Level-passende Entwicklungen",
+        "Pokémon tauchen erst auf, wenn sie auf diesem Level schon entwickelt sein könnten (z. B. kein Garados vor "
+        "Level 20). Pokémon ohne Entwicklung, wie Fossilien, sind immer erlaubt.", &wildSettings.levelAppropriate, this);
+    wildType = addOption(card->body(), card, "Gleicher Typ wie das Original",
+        "Optional: Das neue Pokémon hat mindestens einen Typ mit dem alten gemeinsam – beim Angeln gibt es dann "
+        "weiterhin Wasser-Pokémon.", &wildSettings.sameType, this);
+    wildStrength = addOption(card->body(), card, "Ähnlich starke Pokémon",
+        "Optional: Das neue Pokémon hat ungefähr dieselbe Basiswerte-Summe wie das alte.", &wildSettings.similarStrength, this);
+    wildLegends = addOption(card->body(), card, "Legendäre Pokémon erlauben",
+        "Legendäre und Mysteriöse Pokémon dürfen auch als wilde Pokémon auftauchen.", &wildSettings.legendaries, this);
+    inner->addWidget(card);
+
+    auto* ugCard = new Card("Untergrund", QString(), wildContent);
+    wildUnderground = addOption(ugCard->body(), ugCard, "Pokémon im Untergrund randomisieren",
+        "Die Pokémon in den Höhlen des Untergrunds (Pokémon-Hort), auch die seltenen Pokémon der einzelnen "
+        "Höhlen-Arten. Wie im Original steigen die Level dort mit deinen Orden – die Regel für level-passende "
+        "Entwicklungen gilt im Untergrund deshalb nicht.", &wildSettings.underground, this, [this]() { updateStatus(); });
+    inner->addWidget(ugCard);
+
+    inner->addWidget(mutedLabel("Der Mod enthält die Tabellen für Strahlender Diamant und für Leuchtende Perle. "
+                                "Editionsexklusive Pokémon werden für jede Edition getrennt ausgewürfelt. Gebiete mit "
+                                "Icognito behalten ihre Buchstaben nur, wenn dort weiterhin Icognito vorkommt.", wildContent));
+    layout->addStretch();
+
+    refreshWildPage();
+    return wrapPage("Wilde Pokémon", "Gras, Höhlen, Wasser, Angeln, Honigbäume, Großes Moor und Untergrund.", content);
+}
+
+void BdspRandomizerWindow::refreshWildPage() {
+    if (wildSwitch == nullptr) return;
+    std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+    for (QWidget* w : std::initializer_list<QWidget*>{wildSwitch, wildMode, wildLevel, wildType, wildStrength, wildLegends,
+                                                     wildUnderground}) {
+        blockers.push_back(std::make_unique<QSignalBlocker>(w));
+    }
+    wildSwitch->setChecked(wildSettings.enabled);
+    wildMode->setCurrent(wildSettings.mode);
+    wildLevel->setChecked(wildSettings.levelAppropriate);
+    wildType->setChecked(wildSettings.sameType);
+    wildStrength->setChecked(wildSettings.similarStrength);
+    wildLegends->setChecked(wildSettings.legendaries);
+    wildUnderground->setChecked(wildSettings.underground);
+    wildContent->setEnabled(wildSettings.enabled);
+}
+
+// ------------------------------------------------------------------ Items
+
+QWidget* BdspRandomizerWindow::buildItemsPage() {
+    auto* content = new QWidget(this);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    auto* world = new Card("Items in der Spielwelt", QString(), content);
+    {
+        auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel("Verteilung", world));
+        row->addWidget(new InfoButton(
+            "Mischen: Alle Items bleiben im Spiel, liegen aber an anderen Orten. Es gibt also genauso viele "
+            "Sonderbonbons wie im Original.\n"
+            "Komplett zufällig: Jeder Ort bekommt ein zufälliges Item, das im Spiel vorkommt (jeweils einmal).", world));
+        row->addStretch();
+        itemMode = new SegmentedControl({"Mischen", "Komplett zufällig"}, world);
+        row->addWidget(itemMode);
+        world->body()->addLayout(row);
+        connect(itemMode, &SegmentedControl::changed, this, [this](int v) { itemSettings.mode = v; });
+    }
+    auto status = [this]() { updateStatus(); };
+    itemField = addOption(world->body(), world, "Items auf dem Boden",
+        "Die Pokéball-Symbole auf Routen, in Städten und in Höhlen. TMs und Basis-Items (z. B. Fahrrad, Azurflöte, "
+        "Schlüssel) bleiben, wo sie sind.", &itemSettings.fieldItems, this, status);
+    itemHidden = addOption(world->body(), world, "Versteckte Items",
+        "Die unsichtbaren Items, die du mit dem Itemradar oder durch Absuchen findest – z. B. Sternenstücke, "
+        "Herzschuppen oder Beeren-Pflanzen.", &itemSettings.hiddenItems, this, status);
+    layout->addWidget(world);
+
+    auto* other = new Card("Läden und Trainer", QString(), content);
+    itemShops = addOption(other->body(), other, "Laden-Angebote zufällig",
+        "Die Angebote in den Pokémon-Centern, im Kaufhaus Schleiede und in den kleinen Läden werden zufällig. "
+        "Pokébälle, Tränke, Beleber, Heiler und Schutz bleiben immer erhältlich, TMs und Honig ebenfalls.",
+        &itemSettings.shops, this, status);
+    itemTrainers = addOption(other->body(), other, "Items der Trainer-Pokémon zufällig",
+        "Trainer-Pokémon, die im Original ein Item tragen, bekommen ein zufälliges Kampf-Item "
+        "(z. B. Überreste, Leben-Orb, Wahlschal, Fokusgurt oder typverstärkende Items).",
+        &itemSettings.trainerItems, this, status);
+    layout->addWidget(other);
+    layout->addStretch();
+
+    refreshItemsPage();
+    return wrapPage("Items", "Gegenstände in der Spielwelt, in Läden und bei Trainern.", content);
+}
+
+void BdspRandomizerWindow::refreshItemsPage() {
+    if (itemMode == nullptr) return;
+    std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+    for (QWidget* w : std::initializer_list<QWidget*>{itemMode, itemField, itemHidden, itemShops, itemTrainers}) {
+        blockers.push_back(std::make_unique<QSignalBlocker>(w));
+    }
+    itemMode->setCurrent(itemSettings.mode);
+    itemField->setChecked(itemSettings.fieldItems);
+    itemHidden->setChecked(itemSettings.hiddenItems);
+    itemShops->setChecked(itemSettings.shops);
+    itemTrainers->setChecked(itemSettings.trainerItems);
+}
+
 // ---------------------------------------------------------------- Trainer
 
 QWidget* BdspRandomizerWindow::buildTrainerPage() {
@@ -850,26 +1021,43 @@ bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
     // Starter, Geschenke, Begegnungen und Tausch zuerst: die Starter von Rivale und Lucius/Lucia
     // werden dabei festgelegt und vom Trainer-Randomizer nicht mehr veraendert
     const QString exefs = QDir::fromNativeSeparators(exefsEdit->text().trimmed());
+    bdsp::ScriptData scripts; // Skripte werden von mehreren Bereichen geaendert und einmal gespeichert
     bdsp::EncounterResult encounters;
     QString stepError;
-    if (!bdsp::randomizeEncounters(romfs, exefs, work, encounterSettings, seed, encounters, &stepError)) {
+    if (!bdsp::randomizeEncounters(romfs, exefs, work, scripts, encounterSettings, seed, encounters, &stepError)) {
         if (error) *error = stepError;
         return false;
     }
     const bdsp::TrainerRandomizerResult result = bdsp::randomizeTrainers(work, trainerSettings, seed);
 
+    // Items nach den Trainern: Trainer-Items ersetzen die Items der neuen Teams
+    bdsp::ItemResult items;
+    if (!bdsp::randomizeItems(romfs, work, scripts, itemSettings, seed, items, &stepError)) {
+        if (error) *error = stepError;
+        return false;
+    }
+    bdsp::WildResult wild;
+    if (!bdsp::randomizeWild(romfs, work, wildSettings, check.version, seed, wild, &stepError)) {
+        if (error) *error = stepError;
+        return false;
+    }
+
     QDir(outputFolder).removeRecursively();
     const QString romfsOut = outputFolder + "/romfs";
     QString saveError;
-    if (!work.save(romfsOut, &saveError) || !bdsp::writeEncounters(outputFolder, encounters, &saveError)) {
+    if (!work.save(romfsOut, &saveError) || !bdsp::writeEncounters(outputFolder, encounters, &saveError) ||
+        !bdsp::writeWild(romfsOut, wild, &saveError) || !scripts.save(romfsOut, &saveError)) {
         if (error) *error = "Die Dateien konnten nicht geschrieben werden:\n" + saveError;
         return false;
     }
     lastHadExefsPatch = !encounters.ips.isEmpty();
 
     if (spoilerLog->isChecked()) {
-        bdsp::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings,
-                           bdsp::encounterSpoiler(encounters, work, texts), seedText, check.version);
+        QList<bdsp::SpoilerSection> sections = bdsp::encounterSpoiler(encounters, work, texts);
+        sections += bdsp::wildSpoiler(wild, work, texts);
+        sections += bdsp::itemSpoiler(items, texts);
+        bdsp::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, sections, seedText,
+                           check.version);
     }
 
     QFile info(outputFolder + "/Info.txt");
@@ -881,9 +1069,15 @@ bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         out << "Spiel: " << bdsp::versionName(check.version) << "\n";
         out << "Geänderte Trainer: " << result.randomized << "\n";
         out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << encounters.changes.size() << "\n";
+        int wildAreas = static_cast<int>(wild.areas.size() + wild.undergroundLog.size());
+        out << "Geänderte Gebiete mit wilden Pokémon: " << wildAreas << "\n";
+        out << "Geänderte Items: " << items.fieldItems + items.hiddenItems << " (Boden/versteckt), " << items.shopItems
+            << " (Läden), " << items.trainerItems << " (Trainer)\n";
         if (!encounters.ips.isEmpty()) out << "ExeFS-Patch: exefs/" << encounters.ipsName << "\n";
         out << "\nTrainer-Einstellungen:\n" << QJsonDocument(bdsp::settingsToJson(trainerSettings)).toJson() << "\n";
-        out << "Starter & Geschenke:\n" << QJsonDocument(bdsp::encounterSettingsToJson(encounterSettings)).toJson();
+        out << "Starter & Geschenke:\n" << QJsonDocument(bdsp::encounterSettingsToJson(encounterSettings)).toJson() << "\n";
+        out << "Wilde Pokémon:\n" << QJsonDocument(bdsp::wildSettingsToJson(wildSettings)).toJson() << "\n";
+        out << "Items:\n" << QJsonDocument(bdsp::itemSettingsToJson(itemSettings)).toJson();
     }
     lastSeed = seedText;
     return true;
@@ -1115,6 +1309,8 @@ QJsonObject BdspRandomizerWindow::settingsJson() const {
     json["spoilerLog"] = spoilerLog->isChecked();
     json["trainer"] = bdsp::settingsToJson(trainerSettings);
     json["encounters"] = bdsp::encounterSettingsToJson(encounterSettings);
+    json["wild"] = bdsp::wildSettingsToJson(wildSettings);
+    json["items"] = bdsp::itemSettingsToJson(itemSettings);
     return json;
 }
 
@@ -1130,8 +1326,18 @@ void BdspRandomizerWindow::applySettingsJson(const QJsonObject& json) {
         encounterSettings = bdsp::EncounterSettings();
         bdsp::encounterSettingsFromJson(json.value("encounters").toObject(), encounterSettings);
     }
+    if (json.value("wild").isObject()) {
+        wildSettings = bdsp::WildSettings();
+        bdsp::wildSettingsFromJson(json.value("wild").toObject(), wildSettings);
+    }
+    if (json.value("items").isObject()) {
+        itemSettings = bdsp::ItemSettings();
+        bdsp::itemSettingsFromJson(json.value("items").toObject(), itemSettings);
+    }
     refreshTrainerPage();
     refreshStartersPage();
+    refreshWildPage();
+    refreshItemsPage();
     if (activeInfo) updateStatus();
 }
 
