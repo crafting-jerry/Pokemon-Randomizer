@@ -42,6 +42,11 @@ void svWilds::randomizeWilds(QMap<int, QList<int>> allowedPokemon, bool ogerponT
     for(unsigned long long i=1; i< 1026; i++){
         if(allowedPokemon.contains(i)){
             for(unsigned long long j =0; j<pokemonMapping["pokemons"][i]["forms"].size(); j++){
+                // Nur erlaubte Formen eintragen (keine Megas, Partner-Formen usw.), sonst erscheint im Spiel ein Ei
+                if(!allowedPokemon[i].contains(int(j))){
+                    continue;
+                }
+
                 if(i == 666 || i == 665 || i==664){
                     if(j!=18){
                         continue;
@@ -71,7 +76,7 @@ void svWilds::randomizeWilds(QMap<int, QList<int>> allowedPokemon, bool ogerponT
                 bool water = false;
                 if(pokemonSwim.contains(int(pokemonMapping["pokemons"][i]["devid"]))){
                     if(pokemonSwim[int(pokemonMapping["pokemons"][i]["devid"])].contains(int(j))){
-                        air = true;
+                        water = true;
                     }
                 }
 
