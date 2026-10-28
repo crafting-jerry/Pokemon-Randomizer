@@ -430,6 +430,25 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                         !set_tera_type_pokemon.contains(int(localMapping["pokemons"][pokemon]["natdex"])) &&
                         (originalGem != "DEFAULT" || entry["changeGem"] == true)){
                         entry[key]["gemType"] = teraTypes[themeType].toStdString();
+                    }else if(!trainerThemeType.contains(index) && trainer.randomizeTeras == false &&
+                               !set_tera_type_pokemon.contains(int(localMapping["pokemons"][pokemon]["natdex"])) &&
+                               originalGem != "DEFAULT"){
+                        // Kein Typ-Trainer (Rivalen, Pepper, Cosima ...): der feste Tera-Typ des Originals
+                        // (z. B. Feuer vom Starter) passt nicht mehr -> einen der Typen des neuen Pokemon nehmen
+                        QPair<int,int> monTypes;
+                        if(smartData.isReady()){
+                            monTypes = smartData.types(pokemon, form);
+                        }else{
+                            const json& formData = localMapping["pokemons"][pokemon]["forms"][form];
+                            monTypes = qMakePair(int(formData["type1"]), int(formData["type2"]));
+                        }
+                        int teraType = monTypes.first;
+                        if(monTypes.second != monTypes.first && randGen.bounded(2) == 1){
+                            teraType = monTypes.second;
+                        }
+                        if(teraType >= 0 && teraType < 18){
+                            entry[key]["gemType"] = teraTypes[teraType].toStdString();
+                        }
                     }
 
                     // Set Shinyness
