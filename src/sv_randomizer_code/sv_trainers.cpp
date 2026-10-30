@@ -337,7 +337,7 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
 
                     // set IVs
                     if(trainer.forcePerfectIV == true){
-                        entry[key]["talenType"] = "VALUE";
+                        entry[key]["talentType"] = "VALUE";
                         entry[key]["talentValue"]["hp"] = 31;
                         entry[key]["talentValue"]["atk"] = 31;
                         entry[key]["talentValue"]["def"] = 31;
