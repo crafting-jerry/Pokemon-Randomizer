@@ -1,6 +1,8 @@
 #include "headers/swsh/SwShRandomizerWindow.h"
 #include "headers/modern_ui/modern_widgets.h"
 #include "headers/swsh/SwShTrainerEditor.h"
+#include "headers/swsh/swsh_session.h"
+#include "headers/modern_ui/edit_pages.h"
 
 #include <QApplication>
 #include "headers/common/mod_output.h"
@@ -62,6 +64,7 @@ SwShRandomizerWindow::SwShRandomizerWindow(QWidget* parent) : QWidget(parent) {
     pages->addWidget(buildItemPage());
     pages->addWidget(buildDataPage());
     pages->addWidget(buildFacilityPage());
+    pages->addWidget(workspace);
     middle->addWidget(pages, 1);
 
     root->addLayout(middle, 1);
@@ -89,25 +92,42 @@ QWidget* SwShRandomizerWindow::buildSidebar() {
     layout->setContentsMargins(12, 16, 12, 12);
     layout->setSpacing(2);
 
-    auto* back = new QPushButton("← Spielauswahl", sidebar);
-    back->setObjectName("backButton");
-    back->setCursor(Qt::PointingHandCursor);
-    connect(back, &QPushButton::clicked, this, &SwShRandomizerWindow::backRequested);
-    layout->addWidget(back, 0, Qt::AlignLeft);
+    backButton = new QPushButton("← Spielauswahl", sidebar);
+    backButton->setObjectName("backButton");
+    backButton->setCursor(Qt::PointingHandCursor);
+    connect(backButton, &QPushButton::clicked, this, [this]() {
+        if (editMode) {
+            leaveEditMode(true);
+        } else {
+            emit backRequested();
+        }
+    });
+    layout->addWidget(backButton, 0, Qt::AlignLeft);
     layout->addSpacing(6);
 
     auto* title = new QLabel("Galar Randomizer", sidebar);
     title->setObjectName("appTitle");
-    auto* subtitle = new QLabel("Schwert und Schild", sidebar);
-    subtitle->setObjectName("appSubtitle");
+    sidebarSubtitle = new QLabel("Schwert und Schild", sidebar);
+    sidebarSubtitle->setObjectName("appSubtitle");
     layout->addWidget(title);
-    layout->addWidget(subtitle);
+    layout->addWidget(sidebarSubtitle);
 
     nav = new QListWidget(sidebar);
     nav->addItems(kPages);
     nav->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     nav->setCursor(Qt::PointingHandCursor);
     layout->addWidget(nav, 1);
+
+    // Bearbeiten-Modus: eigene Reiter in derselben Seitenleiste
+    workspace = new modernui::EditWorkspace(this);
+    QListWidget* editNav = workspace->navigation();
+    editNav->setParent(sidebar);
+    editNav->hide();
+    layout->addWidget(editNav, 1);
+    connect(workspace, &modernui::EditWorkspace::edited, this, [this]() {
+        editedByHand = true;
+        updateStatus();
+    });
 
     layout->addWidget(mutedLabel("Bewege die Maus über ein (i), um eine Erklärung zu sehen.", sidebar));
     return sidebar;
@@ -129,6 +149,15 @@ QWidget* SwShRandomizerWindow::buildBottomBar() {
     infoColumn->addWidget(detailInfo);
     layout->addLayout(infoColumn);
     layout->addStretch();
+
+    editOriginalButton = new QPushButton("Original bearbeiten", bar);
+    editOriginalButton->setObjectName("secondary");
+    editOriginalButton->setEnabled(false);
+    editOriginalButton->setCursor(Qt::PointingHandCursor);
+    editOriginalButton->setToolTip("Öffnet die unveränderten Spieldaten im Bearbeiten-Modus, ohne etwas zu randomisieren. "
+                                   "So kannst du wie in pkNX alles von Hand ändern.");
+    connect(editOriginalButton, &QPushButton::clicked, this, &SwShRandomizerWindow::editOriginal);
+    layout->addWidget(editOriginalButton);
 
     startButton = new QPushButton("Randomisieren", bar);
     startButton->setObjectName("primary");
@@ -539,6 +568,15 @@ QStringList SwShRandomizerWindow::activeAreas() const {
 }
 
 void SwShRandomizerWindow::updateStatus() {
+    if (editMode && session) {
+        activeInfo->setText(session->randomized ? "Bearbeiten-Modus · Seed " + sessionSeed : QString("Bearbeiten-Modus · Original"));
+        activeInfo->setToolTip(QString());
+        detailInfo->setText(editedByHand ? QString("Von Hand geändert – gelb markiert. „Exportieren“ schreibt den Mod.")
+                                         : QString("Geänderte Werte sind gelb markiert. „Exportieren“ schreibt den Mod."));
+        startButton->setEnabled(true);
+        return;
+    }
+    if (editOriginalButton) editOriginalButton->setEnabled(files != nullptr);
     const QStringList areas = activeAreas();
     if (files) {
         QString game = check.version == swsh::Version::Unknown ? QString("Schwert/Schild")
@@ -1225,96 +1263,91 @@ quint64 seedFromText(const QString& text) {
 }
 } // namespace
 
-bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* error) {
+bool SwShRandomizerWindow::prepareSession(bool randomize, QString* error) {
     if (!files) {
         if (error) *error = "Die Spieldateien sind nicht geladen.";
         return false;
     }
-    QString seedText = seedEdit->text().trimmed();
-    if (seedText.isEmpty()) {
-        seedText = QString::number(QRandomGenerator::global()->bounded(1000000000));
-    }
-    const quint64 seed = seedFromText(seedText);
-
-    const QString romfs = QDir::fromNativeSeparators(romfsEdit->text().trimmed());
-    swsh::GameTexts texts;
-    texts.load(romfs);
     auto fail = [error](const QString& message) {
         if (error) *error = message;
         return false;
     };
 
-    swsh::GameFiles work = *files; // Original bleibt fuer weitere Durchlaeufe unveraendert
+    auto next = std::make_unique<swsh::EditSession>();
+    swsh::EditSession& s = *next;
+    s.randomized = randomize;
+    s.romfs = QDir::fromNativeSeparators(romfsEdit->text().trimmed());
+    s.version = check.version;
+    s.original = *files;
+    s.work = *files; // Original bleibt fuer weitere Durchlaeufe unveraendert
 
-    // Pokemon-Daten zuerst, damit Trainer und wilde Pokemon die neuen Entwicklungen kennen
-    QList<swsh::EvolutionChange> evolutionChanges;
-    if (dataSettings.tradeEvolutions) {
-        evolutionChanges = swsh::removeTradeEvolutions(work, texts);
-    }
-    const swsh::PokemonDataResult dataResult = swsh::randomizePokemonData(work, dataSettings, seed);
-
-    swsh::TrainerRandomizerResult result = swsh::randomizeTrainers(work, trainerSettings, seed);
-
-    QString stepError;
+    QString seedText;
     swsh::EncounterResult encounters;
-    if (!swsh::randomizeEncounters(romfs, work, encounterSettings, seed, encounters, &stepError)) return fail(stepError);
-
-    swsh::WildResult wild;
-    if (!swsh::randomizeWild(romfs, work, wildSettings, seed, wild, &stepError)) return fail(stepError);
-
-    // data_table.gfpak: wilde Pokemon und Raids teilen sich die Datei
-    QByteArray dataTable = wild.dataTable;
-    swsh::RaidResult raids;
-    if (raidSettings.enabled) {
-        if (dataTable.isEmpty()) dataTable = swsh::readFile(romfs + "/bin/archive/field/resident/data_table.gfpak");
-        if (!swsh::randomizeRaids(dataTable, work, raidSettings, seed, raids, &stepError)) return fail(stepError);
-    }
-
-    swsh::FacilityResult facilities;
-    if (!swsh::randomizeFacilities(romfs, work, facilitySettings, seed, facilities, &stepError)) return fail(stepError);
-
-    // placement.gfpak: Starter-Modelle und Items teilen sich die Datei
-    QByteArray placement = encounters.placement;
-    swsh::ItemResult items;
-    QList<int> changedTrainers = result.changedIndexes;
-    if (itemSettings.anyEnabled()) {
-        const QByteArray input = placement.isEmpty() ? swsh::readFile(romfs + "/" + swsh::path::Placement) : placement;
-        if (!swsh::randomizeItems(romfs, input, work, &changedTrainers, itemSettings, seed, items, &stepError)) {
-            return fail(stepError);
+    if (randomize) {
+        seedText = seedEdit->text().trimmed();
+        if (seedText.isEmpty()) {
+            seedText = QString::number(QRandomGenerator::global()->bounded(1000000000));
         }
-        if (!items.placement.isEmpty()) placement = items.placement;
-    }
-    encounters.placement = placement;
+        const quint64 seed = seedFromText(seedText);
+        const QString romfs = s.romfs;
+        swsh::GameTexts texts;
+        texts.load(romfs);
+        swsh::GameFiles& work = s.work;
 
+        // Pokemon-Daten zuerst, damit Trainer und wilde Pokemon die neuen Entwicklungen kennen
+        if (dataSettings.tradeEvolutions) {
+            s.evolutionChanges = swsh::removeTradeEvolutions(work, texts);
+        }
+        s.dataResult = swsh::randomizePokemonData(work, dataSettings, seed);
+
+        s.trainerResult = swsh::randomizeTrainers(work, trainerSettings, seed);
+
+        QString stepError;
+        if (!swsh::randomizeEncounters(romfs, work, encounterSettings, seed, encounters, &stepError)) return fail(stepError);
+
+        swsh::WildResult wild;
+        if (!swsh::randomizeWild(romfs, work, wildSettings, seed, wild, &stepError)) return fail(stepError);
+
+        // data_table.gfpak: wilde Pokemon und Raids teilen sich die Datei
+        QByteArray dataTable = wild.dataTable;
+        if (raidSettings.enabled) {
+            if (dataTable.isEmpty()) dataTable = swsh::readFile(romfs + "/bin/archive/field/resident/data_table.gfpak");
+            if (!swsh::randomizeRaids(dataTable, work, raidSettings, seed, s.raids, &stepError)) return fail(stepError);
+        }
+        s.dataTable = dataTable;
+
+        if (!swsh::randomizeFacilities(romfs, work, facilitySettings, seed, s.facilities, &stepError)) return fail(stepError);
+
+        // placement.gfpak: Items werden hier gesetzt, die Starter-Modelle erst beim Export
+        // (damit auch von Hand geaenderte Starter auf dem Tisch stehen)
+        QList<int> changedTrainers = s.trainerResult.changedIndexes;
+        if (itemSettings.anyEnabled()) {
+            const QByteArray input = swsh::readFile(romfs + "/" + swsh::path::Placement);
+            if (!swsh::randomizeItems(romfs, input, work, &changedTrainers, itemSettings, seed, s.items, &stepError)) {
+                return fail(stepError);
+            }
+            s.placementBase = s.items.placement;
+        }
+        s.trainerResult.changedIndexes = changedTrainers;
+    }
+
+    QString openError;
+    if (!swsh::openSession(s, randomize ? &encounters : nullptr, &openError)) return fail(openError);
+    session = std::move(next);
+    sessionSeed = seedText;
+    return true;
+}
+
+bool SwShRandomizerWindow::exportTo(const QString& outputFolder, QString* error) {
+    if (!session) {
+        if (error) *error = "Es gibt nichts zu exportieren.";
+        return false;
+    }
+    const swsh::EditSession& s = *session;
     QDir(outputFolder).removeRecursively();
-    const QString romfsOut = outputFolder + "/romfs";
-    bool written = work.trainers.save(romfsOut, changedTrainers) && swsh::writeEncounters(romfsOut, encounters) &&
-                   work.evolutions.save(romfsOut);
-    if (!dataTable.isEmpty()) {
-        written &= swsh::writeFile(romfsOut + "/bin/archive/field/resident/data_table.gfpak", dataTable);
-    }
-    written &= swsh::writeFacilities(romfsOut, facilities);
-    if (dataResult.personalChanged) written &= swsh::writeFile(romfsOut + "/" + swsh::path::Personal, work.personal.save());
-    if (dataResult.learnsetsChanged) written &= swsh::writeFile(romfsOut + "/" + swsh::path::Learnsets, work.learnsets.save());
-    if (!items.shops.isEmpty()) {
-        written &= swsh::writeFile(romfsOut + "/bin/appli/shop/bin/shop_data.bin", items.shops);
-    }
-    if (encounterSettings.trades) {
-        // Tauschpartner nennen im Dialog ihr neues Pokemon
-        const QString tradeText = "bin/message/German/script/field_trade.dat";
-        const QByteArray text = swsh::buildTradeTexts(swsh::readFile(romfs + "/" + tradeText), encounters.changes, texts.pokemon);
-        if (!text.isEmpty()) written &= swsh::writeFile(romfsOut + "/" + tradeText, text);
-    }
-    if (!written) return fail("Die Dateien konnten nicht geschrieben werden:\n" + romfsOut);
-
-    if (spoilerLog->isChecked()) {
-        QList<swsh::SpoilerSection> sections = swsh::encounterSpoiler(encounters, work, texts);
-        sections += swsh::wildSpoiler(wild, work, texts, swsh::readMessage(romfs, "place_name_indirect"), check.version);
-        sections += swsh::extrasSpoiler(evolutionChanges, raids, items, texts, check.version);
-        sections += swsh::dataSpoiler(dataResult, facilities, work, texts);
-        swsh::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, sections, seedText,
-                           check.version);
-    }
+    const QString seedText = s.randomized ? sessionSeed : QString("– (Original bearbeitet)");
+    const QString spoilerPath = spoilerLog->isChecked() ? outputFolder + "/Spoiler-Log.html" : QString();
+    if (!swsh::exportSession(s, outputFolder + "/romfs", spoilerPath, trainerSettings, seedText, error)) return false;
 
     QFile info(outputFolder + "/Info.txt");
     if (info.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -1323,32 +1356,111 @@ bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         out << "Erstellt: " << QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm") << "\n";
         out << "Seed: " << seedText << "\n";
         out << "Spiel: " << swsh::versionName(check.version) << "\n";
-        out << "Geänderte Trainer: " << result.randomized << "\n";
-        out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << encounters.changes.size() << "\n\n";
-        out << "Trainer-Einstellungen:\n" << QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson() << "\n";
-        out << "Starter & Geschenke:\n" << QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson() << "\n";
-        out << "Wilde Pokémon:\n" << QJsonDocument(swsh::wildSettingsToJson(wildSettings)).toJson() << "\n";
-        out << "Dyna-Raids:\n" << QJsonDocument(swsh::raidSettingsToJson(raidSettings)).toJson() << "\n";
-        out << "Items:\n" << QJsonDocument(swsh::itemSettingsToJson(itemSettings)).toJson() << "\n";
-        out << "Pokémon-Daten:\n" << QJsonDocument(swsh::pokemonDataSettingsToJson(dataSettings)).toJson() << "\n";
-        out << "Dyna-Höhle & Kampfturm:\n" << QJsonDocument(swsh::facilitySettingsToJson(facilitySettings)).toJson();
+        out << "Geänderte Trainer: " << swsh::changedTrainerCount(s) << "\n";
+        out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << swsh::changedEncounterCount(s) << "\n";
+        out << "Von Hand bearbeitet: " << (editedByHand ? "ja" : "nein") << "\n\n";
+        if (s.randomized) {
+            out << "Trainer-Einstellungen:\n" << QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson() << "\n";
+            out << "Starter & Geschenke:\n" << QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson() << "\n";
+            out << "Wilde Pokémon:\n" << QJsonDocument(swsh::wildSettingsToJson(wildSettings)).toJson() << "\n";
+            out << "Dyna-Raids:\n" << QJsonDocument(swsh::raidSettingsToJson(raidSettings)).toJson() << "\n";
+            out << "Items:\n" << QJsonDocument(swsh::itemSettingsToJson(itemSettings)).toJson() << "\n";
+            out << "Pokémon-Daten:\n" << QJsonDocument(swsh::pokemonDataSettingsToJson(dataSettings)).toJson() << "\n";
+            out << "Dyna-Höhle & Kampfturm:\n" << QJsonDocument(swsh::facilitySettingsToJson(facilitySettings)).toJson();
+        }
     }
     lastSeed = seedText;
     return true;
 }
 
+bool SwShRandomizerWindow::randomizeTo(const QString& outputFolder, QString* error) {
+    return prepareSession(true, error) && exportTo(outputFolder, error);
+}
+
 void SwShRandomizerWindow::startRandomizer() {
+    if (editMode) {
+        exportAndFinish();
+        return;
+    }
     saveSettings();
-    const QString output = QDir::current().filePath("Randomizers-Output/Schwert-Schild/Randomizer-1");
     QApplication::setOverrideCursor(Qt::WaitCursor);
     QString error;
-    const bool ok = randomizeTo(output, &error);
+    const bool ok = prepareSession(true, &error);
     QApplication::restoreOverrideCursor();
-
     if (!ok) {
         QMessageBox::warning(this, "Randomisieren", error);
         return;
     }
+    enterEditMode();
+}
+
+void SwShRandomizerWindow::editOriginal() {
+    if (editMode) return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = prepareSession(false, &error);
+    QApplication::restoreOverrideCursor();
+    if (!ok) {
+        QMessageBox::warning(this, "Original bearbeiten", error);
+        return;
+    }
+    enterEditMode();
+}
+
+void SwShRandomizerWindow::enterEditMode() {
+    if (!session) return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    editedByHand = false;
+    workspace->setSections(swsh::buildSections(*session), swsh::buildCatalog(*session));
+    QApplication::restoreOverrideCursor();
+    editMode = true;
+    nav->hide();
+    workspace->navigation()->show();
+    sidebarSubtitle->setText(session->randomized ? "Ergebnis ansehen und bearbeiten" : "Original bearbeiten");
+    backButton->setText("← Einstellungen");
+    pages->setCurrentWidget(workspace);
+    startButton->setText("Exportieren");
+    startButton->setEnabled(true);
+    startButton->setToolTip("Schreibt den Mod (romfs) und das Spoiler-Log mit allen Änderungen.");
+    editOriginalButton->hide();
+    updateStatus();
+}
+
+bool SwShRandomizerWindow::leaveEditMode(bool ask) {
+    if (!editMode) return true;
+    if (ask && editedByHand) {
+        const auto answer = QMessageBox::question(
+            this, "Bearbeiten beenden",
+            "Deine Änderungen wurden noch nicht exportiert und gehen verloren. Trotzdem zurück zu den Einstellungen?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) return false;
+    }
+    editMode = false;
+    workspace->clear();
+    session.reset();
+    workspace->navigation()->hide();
+    nav->show();
+    sidebarSubtitle->setText("Schwert und Schild");
+    backButton->setText("← Spielauswahl");
+    pages->setCurrentIndex(nav->currentRow() < 0 ? 0 : nav->currentRow());
+    startButton->setText("Randomisieren");
+    editOriginalButton->show();
+    updateStatus();
+    return true;
+}
+
+void SwShRandomizerWindow::exportAndFinish() {
+    const QString output = QDir::current().filePath("Randomizers-Output/Schwert-Schild/Randomizer-1");
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = exportTo(output, &error);
+    QApplication::restoreOverrideCursor();
+
+    if (!ok) {
+        QMessageBox::warning(this, "Exportieren", error);
+        return;
+    }
+    editedByHand = false; // alles ist geschrieben
 
     // Optional direkt in den Mod-Ordner des Emulators
     bool copied = false;
@@ -1363,12 +1475,14 @@ void SwShRandomizerWindow::startRandomizer() {
     box.setWindowTitle("Fertig");
     box.setIcon(copyError.isEmpty() ? QMessageBox::Information : QMessageBox::Warning);
     QString tid = swsh::titleId(check.version);
-    box.setText("Der Randomizer ist fertig (Seed " + lastSeed + ").");
+    box.setText(session && session->randomized ? "Der Mod ist fertig (Seed " + lastSeed + ")."
+                                               : QString("Der Mod mit deinen Änderungen ist fertig."));
     if (copied) {
         box.setInformativeText("Der Ordner „romfs“ wurde direkt in deinen Mod-Ordner geschrieben:\n" +
                                QDir::toNativeSeparators(modFolderEdit->text().trimmed()) +
                                "\n\nStarte das Spiel im Emulator (neu) – der Mod ist sofort aktiv. Eine Kopie liegt "
-                               "außerdem in Randomizer-1.");
+                               "außerdem in Randomizer-1.\n\nDu bleibst im Bearbeiten-Modus und kannst weiter ändern "
+                               "und erneut exportieren.");
     } else if (!copyError.isEmpty()) {
         box.setInformativeText(copyError + "\n\nDie Dateien liegen trotzdem in Randomizer-1 und können von Hand "
                                "kopiert werden.");
@@ -1376,7 +1490,8 @@ void SwShRandomizerWindow::startRandomizer() {
         "Kopiere den Ordner „romfs“ aus Randomizer-1 in einen Mod-Ordner deines Spiels:\n\n"
         "• Ryujinx: Rechtsklick auf das Spiel → „Mod-Verzeichnis öffnen“, dort einen Ordner (z. B. Randomizer) anlegen "
         "und „romfs“ hineinkopieren.\n"
-        "• Switch (Atmosphère): atmosphere/contents/" + (tid.isEmpty() ? QString("<Title-ID>") : tid) + "/romfs");
+        "• Switch (Atmosphère): atmosphere/contents/" + (tid.isEmpty() ? QString("<Title-ID>") : tid) + "/romfs\n\n"
+        "Du bleibst im Bearbeiten-Modus und kannst weiter ändern und erneut exportieren.");
     QPushButton* openMod = copied ? box.addButton("Mod-Ordner öffnen", QMessageBox::ActionRole) : nullptr;
     QPushButton* openFolder = box.addButton("Ordner öffnen", QMessageBox::ActionRole);
     QPushButton* openSpoiler = spoilerLog->isChecked() ? box.addButton("Spoiler-Log öffnen", QMessageBox::ActionRole) : nullptr;

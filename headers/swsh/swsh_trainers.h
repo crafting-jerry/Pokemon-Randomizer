@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 #include <QHash>
+#include <QSet>
 #include <QJsonObject>
 #include <QList>
 #include <QString>
@@ -103,10 +104,10 @@ struct TrainerRandomizerResult {
 // Randomisiert die Trainer in files.trainers (in place)
 TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSettings& settings, quint64 seed);
 
-// HTML-Spoiler-Log: zuerst die zusaetzlichen Abschnitte (Starter, Geschenke ...), dann alle Trainer-Teams
+// HTML-Spoiler-Log (editedTrainers: von Hand geaenderte Trainer, erscheinen immer): zuerst die zusaetzlichen Abschnitte (Starter, Geschenke ...), dann alle Trainer-Teams
 bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& texts,
                   const TrainerSettings& settings, const QList<SpoilerSection>& extra,
-                  const QString& seedText, Version version);
+                  const QString& seedText, Version version, const QSet<int>& editedTrainers = QSet<int>());
 
 } // namespace swsh
 

@@ -71,6 +71,14 @@ QByteArray buildTradeTexts(const QByteArray& original, const QList<EncounterChan
 QString dialogName(const QStringList& names, int species, int form);
 bool writeEncounters(const QString& outRomfs, const EncounterResult& result);
 
+// Fuer den Bearbeiten-Modus
+extern const int kStarterGiftIndexes[3];   // Starter in add_poke.bin: Chimpep, Hopplo, Memmeon
+// Setzt die drei Starter-Modelle bei Delion (placement.gfpak). Leer = nicht moeglich.
+QByteArray applyStarterModels(const QByteArray& placement, int s0, int s1, int s2);
+// Einordnung einer statischen Begegnung wie im Spoiler-Log: 2 Story/Legendaer, 3 Spielwelt
+int staticCategory(const FlatRecord& encounter, int index);
+bool isDynamaxEncounter(const FlatRecord& encounter);
+
 // Alle (Art, Form), die als Starter waehlbar sind (im Spiel vorhanden)
 QList<StarterChoice> availablePokemon(const GameFiles& files);
 

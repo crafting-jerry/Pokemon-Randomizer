@@ -171,6 +171,29 @@ int genderFor(int species, int form) {
 
 } // namespace
 
+const int kStarterGiftIndexes[3] = {0, 3, 4};
+
+QByteArray applyStarterModels(const QByteArray& placement, int s0, int s1, int s2) {
+    GfPak pack;
+    if (!pack.load(placement)) return QByteArray();
+    const int fileIndex = pack.indexOf("a_0101.bin");
+    QByteArray zone = pack.file(fileIndex);
+    if (zone.isEmpty() || !patchStarterModels(zone, kStarterCritters, s0, s1, s2)) return QByteArray();
+    pack.setFile(fileIndex, zone);
+    return pack.save();
+}
+
+int staticCategory(const FlatRecord& e, int index) {
+    const int species = static_cast<int>(e.get(encounter::Species));
+    const int scenario = static_cast<int>(e.get(encounter::Scenario));
+    const bool story = isLegendary(species) || scenario != ScenarioNone || index < 53;
+    return story ? 2 : 3;
+}
+
+bool isDynamaxEncounter(const FlatRecord& e) {
+    return isRaidScenario(static_cast<int>(e.get(encounter::Scenario))) || e.get(encounter::DynamaxLevel) > 0;
+}
+
 // ------------------------------------------------------------- Einstellungen
 
 QJsonObject encounterSettingsToJson(const EncounterSettings& s) {

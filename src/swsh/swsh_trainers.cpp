@@ -518,17 +518,18 @@ QString esc(const QString& text) { return text.toHtmlEscaped(); }
 
 bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& texts,
                   const TrainerSettings& settings, const QList<SpoilerSection>& extra,
-                  const QString& seedText, Version version) {
+                  const QString& seedText, Version version, const QSet<int>& editedTrainers) {
     QHash<int, QString> sectionHtml;
     QHash<int, int> sectionCount;
     int total = 0;
 
     for (const Trainer& trainer : files.trainers.all()) {
-        if (!settings.enabled || trainer.isPlaceholder() || trainer.team.isEmpty()) {
+        const bool edited = editedTrainers.contains(trainer.index);
+        if ((!settings.enabled && !edited) || trainer.isPlaceholder() || trainer.team.isEmpty()) {
             continue;
         }
         const int group = trainerGroup(trainer);
-        const bool original = settings.optionsFor(group) == nullptr || !settings.enabled;
+        const bool original = !edited && (settings.optionsFor(group) == nullptr || !settings.enabled);
         const int theme = settings.keepTypeTheme ? trainerTheme(trainer) : -1;
         const QString label = texts.trainerLabel(trainer);
 
@@ -574,6 +575,7 @@ bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& 
         sub << "max. Lv. " + QString::number(highest);
         if (theme >= 0) sub << "Typ: " + texts.typeName(theme);
         if (original) sub << "unverändert";
+        if (edited) sub << "von Hand bearbeitet";
         sub << "#" + QString::number(trainer.index);
 
         QString block = "<article class=\"trainer\" data-search=\"" + esc(search.toLower()) + "\"><header><h3>" + esc(label);
