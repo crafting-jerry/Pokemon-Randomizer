@@ -15,24 +15,16 @@
 
 namespace swsh {
 
-namespace {
-
 const QString kLairFile = "bin/appli/chika/data_table/underground_exploration_poke.bin";
 const QString kTowerFile = "bin/field/param/battle_tower/battle_tower_poke_table.bin";
-
-// EncounterUnderground
 namespace lair {
-enum Field { IsSingleCapture, CaptureFlag, Field02, Form, GigantamaxState, Ball, IndexNum, Level, Species, UiMessage,
-             OtGender, Version, Shiny, IvSpe, IvAtk, IvDef, IvHp, IvSpa, IvSpd, Ability, StoryGated,
-             Move0, Move1, Move2, Move3 };
 const QVector<int> kSizes = {1, 8, 1, 1, 4, 4, 4, 4, 4, 8, 4, 1, 4, 1, 1, 1, 1, 1, 1, 4, 1, 4, 4, 4, 4};
 }
-// BattleTowerPoke
 namespace tower {
-enum Field { F00, F01, F02, F03, F04, F05, F06, Form, F08, HeldItem, Species, EntryId, F0C, Nature, F0E,
-             IvHp, IvAtk, IvDef, IvSpa, IvSpd, IvSpe, F15, Move0, Move1, Move2, Move3 };
 const QVector<int> kSizes = {1, 1, 1, 4, 1, 1, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4};
 }
+
+namespace {
 
 const QSet<int> kSpeciesItems = {236, 259, 258, 256, 257, 274, 225, 226, 227, 1103, 1104, 135, 136, 112};
 

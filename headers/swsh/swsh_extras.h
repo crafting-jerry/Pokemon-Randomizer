@@ -13,6 +13,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+#include <QVector>
 #include <QRandomGenerator>
 
 #include "swsh_files.h"
@@ -79,6 +80,19 @@ struct RaidResult {
     QList<Den> dens;
 };
 
+// Raid-Tabellen (nest_hole_encount.bin) lesen und schreiben
+struct NestEntry {
+    qint64 entryIndex = 0, species = 0, form = 0, levelTable = 0, ability = 0, gigantamax = 0, dropTable = 0,
+           bonusTable = 0, gender = 0, flawlessIVs = 0;
+    QVector<qint64> probabilities;   // Chance je Sternzahl (1-5 Sterne)
+};
+struct NestTable {
+    qint64 tableId = 0, version = 0;  // version: 0 beide, 1 Schwert, 2 Schild
+    QList<NestEntry> entries;
+};
+bool readNestTables(const QByteArray& raw, QList<NestTable>& tables);
+QByteArray writeNestTables(const QList<NestTable>& tables);
+
 // dataTable: Inhalt von data_table.gfpak (wird veraendert zurueckgegeben)
 bool randomizeRaids(QByteArray& dataTable, const GameFiles& files, const RaidSettings& settings, quint64 seed,
                     RaidResult& result, QString* error);
@@ -103,6 +117,39 @@ struct ItemResult {
     QByteArray shops;              // neue shop_data.bin (leer = unveraendert)
 };
 
+// Item-Daten (Taschen, Preise, Hashes in placement.gfpak)
+struct ItemInfo {
+    QHash<int, int> pouch;
+    QHash<int, quint32> price;
+    QHash<quint64, int> idByHash;
+    QHash<int, quint64> hashById;
+    bool load(const QString& romfs);
+    bool isProtected(int id) const;   // TMs/TPs und Basis-Items
+};
+
+// Items in placement.gfpak (Boden und versteckt) fuer den Bearbeiten-Modus
+struct ItemSpot {
+    int file = 0;           // Datei im Archiv
+    quint64 zoneId = 0;     // Gebiet (fuer den Ortsnamen)
+    bool hidden = false;
+    int hashPos = 0;
+    int quantityPos = -1;   // -1 = keine Anzahl
+    int item = 0;
+    int quantity = 1;
+};
+QList<ItemSpot> readItemSpots(const QByteArray& placement, const ItemInfo& info);
+QByteArray writeItemSpots(const QByteArray& placement, const QList<ItemSpot>& spots, const ItemInfo& info);
+
+// Angebote in shop_data.bin (feste Anzahl, werden direkt ersetzt)
+struct ShopSlot {
+    int shop = 0;
+    int stage = -1;          // -1 = Laden ohne Stufen, sonst Stufe (z. B. nach Orden)
+    int pos = 0;
+    int item = 0;
+};
+QList<ShopSlot> readShopSlots(const QByteArray& shop);
+QByteArray writeShopSlots(const QByteArray& shop, const QList<ShopSlot>& shopSlots);
+
 // placement: aktuelle placement.gfpak (ggf. schon mit neuen Starter-Modellen)
 bool randomizeItems(const QString& romfs, const QByteArray& placement, GameFiles& work, QList<int>* changedTrainers,
                     const ItemSettings& settings, quint64 seed, ItemResult& result, QString* error);
@@ -119,6 +166,23 @@ struct FacilitySettings {
 };
 QJsonObject facilitySettingsToJson(const FacilitySettings& s);
 void facilitySettingsFromJson(const QJsonObject& json, FacilitySettings& s);
+
+// Dateien und Felder (fuer den Bearbeiten-Modus)
+extern const QString kLairFile;    // underground_exploration_poke.bin
+extern const QString kTowerFile;   // battle_tower_poke_table.bin
+// EncounterUnderground
+namespace lair {
+enum Field { IsSingleCapture, CaptureFlag, Field02, Form, GigantamaxState, Ball, IndexNum, Level, Species, UiMessage,
+             OtGender, Version, Shiny, IvSpe, IvAtk, IvDef, IvHp, IvSpa, IvSpd, Ability, StoryGated,
+             Move0, Move1, Move2, Move3 };
+extern const QVector<int> kSizes;
+}
+// BattleTowerPoke
+namespace tower {
+enum Field { F00, F01, F02, F03, F04, F05, F06, Form, F08, HeldItem, Species, EntryId, F0C, Nature, F0E,
+             IvHp, IvAtk, IvDef, IvSpa, IvSpd, IvSpe, F15, Move0, Move1, Move2, Move3 };
+extern const QVector<int> kSizes;
+}
 
 struct FacilityResult {
     QList<StarterChoice> lairPokemon;   // neue Leih-/Gegner-Pokemon (form + 1000 = Gigadynamax)

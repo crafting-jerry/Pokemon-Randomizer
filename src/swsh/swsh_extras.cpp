@@ -199,38 +199,10 @@ void raidSettingsFromJson(const QJsonObject& j, RaidSettings& s) {
     s.keepGigantamax = j["keepGigantamax"].toBool(s.keepGigantamax);
 }
 
-namespace {
-struct NestEntry {
-    qint64 entryIndex = 0, species = 0, form = 0, levelTable = 0, ability = 0, gigantamax = 0, dropTable = 0,
-           bonusTable = 0, gender = 0, flawlessIVs = 0;
-    QVector<qint64> probabilities;
-};
-struct NestTable {
-    qint64 tableId = 0, version = 0;
-    QList<NestEntry> entries;
-};
-} // namespace
-
-bool randomizeRaids(QByteArray& dataTable, const GameFiles& files, const RaidSettings& s, quint64 seed,
-                    RaidResult& result, QString* error) {
-    result = RaidResult();
-    if (!s.enabled) return true;
-
-    GfPak pack;
-    if (!pack.load(dataTable)) {
-        if (error) *error = "Die Datei data_table.gfpak konnte nicht gelesen werden.";
-        return false;
-    }
-    const int fileIndex = pack.indexOf("nest_hole_encount.bin");
-    const QByteArray raw = pack.file(fileIndex);
-    if (fileIndex < 0 || raw.isEmpty()) {
-        if (error) *error = "Die Raid-Tabelle (nest_hole_encount.bin) wurde nicht gefunden.";
-        return false;
-    }
-
-    // --- Lesen ---
+bool readNestTables(const QByteArray& raw, QList<NestTable>& tables) {
+    tables.clear();
+    if (raw.size() < 8) return false;
     FbReader r(raw);
-    QList<NestTable> tables;
     for (int t : r.tables(r.root(), 0)) {
         NestTable table;
         table.tableId = r.scalar(t, 0, 8);
@@ -253,6 +225,55 @@ bool randomizeRaids(QByteArray& dataTable, const GameFiles& files, const RaidSet
         }
         tables.append(table);
     }
+    return !tables.isEmpty();
+}
+
+QByteArray writeNestTables(const QList<NestTable>& tables) {
+    FbWriter w;
+    using F = FbWriter::Field;
+    auto tableOf = [](const QVector<int>& pos) { return *std::min_element(pos.begin(), pos.end()) - 4; };
+    QVector<int> rootPos = w.table({F{4, 0, true}});
+    w.patch(0, tableOf(rootPos));
+    const int tableSlots = w.vector(rootPos[0], tables.size());
+    for (int t = 0; t < tables.size(); t++) {
+        const NestTable& table = tables[t];
+        QVector<int> tPos = w.table({F{8, table.tableId, false}, F{4, table.version, false}, F{4, 0, true}});
+        w.patch(tableSlots + 4 * t, tableOf(tPos));
+        const int entrySlots = w.vector(tPos[2], table.entries.size());
+        for (int e = 0; e < table.entries.size(); e++) {
+            const NestEntry& n = table.entries[e];
+            QVector<int> ePos = w.table({F{4, n.entryIndex, false}, F{4, n.species, false}, F{4, n.form, false},
+                                         F{8, n.levelTable, false}, F{1, n.ability, false}, F{1, n.gigantamax, false},
+                                         F{8, n.dropTable, false}, F{8, n.bonusTable, false}, F{4, 0, true},
+                                         F{1, n.gender, false}, F{1, n.flawlessIVs, false}});
+            w.patch(entrySlots + 4 * e, tableOf(ePos));
+            w.vectorScalars(ePos[8], n.probabilities, 4);
+        }
+    }
+    while (w.buf.size() % 4) w.buf.append('\0');
+    return w.buf;
+}
+
+bool randomizeRaids(QByteArray& dataTable, const GameFiles& files, const RaidSettings& s, quint64 seed,
+                    RaidResult& result, QString* error) {
+    result = RaidResult();
+    if (!s.enabled) return true;
+
+    GfPak pack;
+    if (!pack.load(dataTable)) {
+        if (error) *error = "Die Datei data_table.gfpak konnte nicht gelesen werden.";
+        return false;
+    }
+    const int fileIndex = pack.indexOf("nest_hole_encount.bin");
+    const QByteArray raw = pack.file(fileIndex);
+    if (fileIndex < 0 || raw.isEmpty()) {
+        if (error) *error = "Die Raid-Tabelle (nest_hole_encount.bin) wurde nicht gefunden.";
+        return false;
+    }
+
+    // --- Lesen ---
+    QList<NestTable> tables;
+    readNestTables(raw, tables);
     if (tables.isEmpty()) {
         if (error) *error = "Die Raid-Tabelle konnte nicht gelesen werden.";
         return false;
@@ -291,30 +312,7 @@ bool randomizeRaids(QByteArray& dataTable, const GameFiles& files, const RaidSet
     }
 
     // --- Schreiben ---
-    FbWriter w;
-    using F = FbWriter::Field;
-    auto tableOf = [](const QVector<int>& pos) { return *std::min_element(pos.begin(), pos.end()) - 4; };
-    QVector<int> rootPos = w.table({F{4, 0, true}});
-    w.patch(0, tableOf(rootPos));
-    const int tableSlots = w.vector(rootPos[0], tables.size());
-    for (int t = 0; t < tables.size(); t++) {
-        const NestTable& table = tables[t];
-        QVector<int> tPos = w.table({F{8, table.tableId, false}, F{4, table.version, false}, F{4, 0, true}});
-        w.patch(tableSlots + 4 * t, tableOf(tPos));
-        const int entrySlots = w.vector(tPos[2], table.entries.size());
-        for (int e = 0; e < table.entries.size(); e++) {
-            const NestEntry& n = table.entries[e];
-            QVector<int> ePos = w.table({F{4, n.entryIndex, false}, F{4, n.species, false}, F{4, n.form, false},
-                                         F{8, n.levelTable, false}, F{1, n.ability, false}, F{1, n.gigantamax, false},
-                                         F{8, n.dropTable, false}, F{8, n.bonusTable, false}, F{4, 0, true},
-                                         F{1, n.gender, false}, F{1, n.flawlessIVs, false}});
-            w.patch(entrySlots + 4 * e, tableOf(ePos));
-            w.vectorScalars(ePos[8], n.probabilities, 4);
-        }
-    }
-    while (w.buf.size() % 4) w.buf.append('\0');
-
-    pack.setFile(fileIndex, w.buf);
+    pack.setFile(fileIndex, writeNestTables(tables));
     dataTable = pack.save();
     return true;
 }
@@ -341,46 +339,6 @@ void itemSettingsFromJson(const QJsonObject& j, ItemSettings& s) {
 
 namespace {
 
-enum Pouch { Medicine = 0, Balls, Battle, Berries, Other, TMs, Treasures, Ingredients, Key };
-
-struct ItemInfo {
-    QHash<int, int> pouch;
-    QHash<int, quint32> price;
-    QHash<quint64, int> idByHash;
-    QHash<int, quint64> hashById;
-
-    bool load(const QString& romfs) {
-        const QByteArray data = readFile(romfs + "/bin/pml/item/item.dat");
-        const QByteArray hashes = readFile(romfs + "/bin/pml/item/item_hash_to_index.dat");
-        if (data.size() < 0x48 || hashes.size() < 4) return false;
-        auto u16 = [&](const QByteArray& d, int p) { return qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(d.constData() + p)); };
-        auto u32 = [&](const QByteArray& d, int p) { return qFromLittleEndian<quint32>(reinterpret_cast<const uchar*>(d.constData() + p)); };
-        const int count = u16(data, 0);
-        const int maxEntry = u16(data, 4);
-        const int start = static_cast<qint32>(u32(data, 0x40));
-        for (int i = 0; i < count && 0x44 + 2 * i + 2 <= data.size(); i++) {
-            const int entry = u16(data, 0x44 + 2 * i);
-            const int pos = start + entry * 0x30;
-            if (entry >= maxEntry || pos + 0x30 > data.size()) continue;
-            pouch[i] = static_cast<quint8>(data[pos + 0x11]) & 0xF;
-            price[i] = u32(data, pos);
-        }
-        const int hashCount = static_cast<int>(u32(hashes, 0));
-        for (int i = 0; i < hashCount && 4 + 16 * i + 12 <= hashes.size(); i++) {
-            const quint64 h = qFromLittleEndian<quint64>(reinterpret_cast<const uchar*>(hashes.constData() + 4 + 16 * i));
-            const int id = static_cast<int>(u32(hashes, 4 + 16 * i + 8));
-            idByHash[h] = id;
-            hashById[id] = h;
-        }
-        return !pouch.isEmpty() && !idByHash.isEmpty();
-    }
-    // TMs, TPs und Basis-Items werden nie veraendert
-    bool isProtected(int id) const {
-        const int p = pouch.value(id, Key);
-        return p == TMs || p == Key;
-    }
-};
-
 // Kampf-Items fuer Trainer-Pokemon (IDs gegen die Spieltexte geprueft)
 const QList<int> kHeldItems = {
     234, 270, 220, 297, 287, 275, 158, 157, 268, 640, 540, 639, 538, 269, 217, 253, 266, 267, 232, 213, 221, 214,
@@ -389,6 +347,41 @@ const QList<int> kHeldItems = {
 };
 
 } // namespace
+
+namespace {
+enum Pouch { Medicine = 0, Balls, Battle, Berries, Other, TMs, Treasures, Ingredients, Key };
+} // namespace
+
+bool ItemInfo::load(const QString& romfs) {
+    const QByteArray data = readFile(romfs + "/bin/pml/item/item.dat");
+    const QByteArray hashes = readFile(romfs + "/bin/pml/item/item_hash_to_index.dat");
+    if (data.size() < 0x48 || hashes.size() < 4) return false;
+    auto u16 = [&](const QByteArray& d, int p) { return qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(d.constData() + p)); };
+    auto u32 = [&](const QByteArray& d, int p) { return qFromLittleEndian<quint32>(reinterpret_cast<const uchar*>(d.constData() + p)); };
+    const int count = u16(data, 0);
+    const int maxEntry = u16(data, 4);
+    const int start = static_cast<qint32>(u32(data, 0x40));
+    for (int i = 0; i < count && 0x44 + 2 * i + 2 <= data.size(); i++) {
+        const int entry = u16(data, 0x44 + 2 * i);
+        const int pos = start + entry * 0x30;
+        if (entry >= maxEntry || pos + 0x30 > data.size()) continue;
+        pouch[i] = static_cast<quint8>(data[pos + 0x11]) & 0xF;
+        price[i] = u32(data, pos);
+    }
+    const int hashCount = static_cast<int>(u32(hashes, 0));
+    for (int i = 0; i < hashCount && 4 + 16 * i + 12 <= hashes.size(); i++) {
+        const quint64 h = qFromLittleEndian<quint64>(reinterpret_cast<const uchar*>(hashes.constData() + 4 + 16 * i));
+        const int id = static_cast<int>(u32(hashes, 4 + 16 * i + 8));
+        idByHash[h] = id;
+        hashById[id] = h;
+    }
+    return !pouch.isEmpty() && !idByHash.isEmpty();
+}
+
+bool ItemInfo::isProtected(int id) const {
+    const int p = pouch.value(id, Key);
+    return p == TMs || p == Key;
+}
 
 int randomBattleItem(QRandomGenerator& rng) {
     return kHeldItems[static_cast<int>(rng.bounded(static_cast<int>(kHeldItems.size())))];
@@ -599,6 +592,112 @@ bool randomizeItems(const QString& romfs, const QByteArray& placement, GameFiles
         }
     }
     return true;
+}
+
+// ================================================== Items fuer den Bearbeiten-Modus
+
+QList<ItemSpot> readItemSpots(const QByteArray& placement, const ItemInfo& info) {
+    QList<ItemSpot> spots;
+    GfPak pack;
+    if (!pack.load(placement)) return spots;
+    for (int f = 0; f < pack.count(); f++) {
+        const QByteArray data = pack.file(f);
+        if (data.isEmpty()) continue;
+        FbReader r(data);
+        const int root = r.root();
+        if (!r.valid(root, 4) || root < 4) continue;
+        const int vtable = root - static_cast<qint32>(r.u32(root));
+        if (!r.valid(vtable, 4)) continue;
+        for (int zone : r.tables(root, 0)) {
+            const quint64 zoneId = static_cast<quint64>(r.scalar(r.child(zone, 0), 1, 8));
+            for (int holder : r.tables(zone, 6)) {
+                const int item = r.child(holder, 0);
+                const int flags = r.vectorPos(item, 6);
+                const int amounts = r.vectorPos(item, 7);
+                if (r.vectorCount(flags) < 1) continue;
+                const int id = info.idByHash.value(r.u64(flags + 4), -1);
+                if (id <= 0) continue;
+                ItemSpot spot;
+                spot.file = f;
+                spot.zoneId = zoneId;
+                spot.hashPos = flags + 4;
+                spot.quantityPos = r.vectorCount(amounts) > 0 ? amounts + 4 : -1;
+                spot.item = id;
+                spot.quantity = spot.quantityPos > 0 ? static_cast<int>(r.u32(spot.quantityPos)) : 1;
+                spots.append(spot);
+            }
+            for (int holder : r.tables(zone, 19)) {
+                const int item = r.child(holder, 0);
+                for (int chance : r.tables(item, 2)) {
+                    const int hashPos = r.field(chance, 0);
+                    if (!hashPos) continue;
+                    const int id = info.idByHash.value(r.u64(hashPos), -1);
+                    if (id <= 0) continue;
+                    ItemSpot spot;
+                    spot.file = f;
+                    spot.zoneId = zoneId;
+                    spot.hidden = true;
+                    spot.hashPos = hashPos;
+                    spot.quantityPos = r.field(chance, 2);
+                    spot.item = id;
+                    spot.quantity = spot.quantityPos > 0 ? static_cast<int>(r.u32(spot.quantityPos)) : 1;
+                    spots.append(spot);
+                }
+            }
+        }
+    }
+    return spots;
+}
+
+QByteArray writeItemSpots(const QByteArray& placement, const QList<ItemSpot>& spots, const ItemInfo& info) {
+    GfPak pack;
+    if (!pack.load(placement)) return QByteArray();
+    QHash<int, QByteArray> files;
+    for (const ItemSpot& spot : spots) {
+        if (!files.contains(spot.file)) files.insert(spot.file, pack.file(spot.file));
+        QByteArray& d = files[spot.file];
+        if (!info.hashById.contains(spot.item) || spot.hashPos + 8 > d.size()) continue;
+        qToLittleEndian<quint64>(info.hashById.value(spot.item), reinterpret_cast<uchar*>(d.data() + spot.hashPos));
+        if (spot.quantityPos > 0 && spot.quantityPos + 4 <= d.size()) {
+            qToLittleEndian<quint32>(static_cast<quint32>(qMax(1, spot.quantity)), reinterpret_cast<uchar*>(d.data() + spot.quantityPos));
+        }
+    }
+    for (auto it = files.constBegin(); it != files.constEnd(); ++it) pack.setFile(it.key(), it.value());
+    return pack.save();
+}
+
+QList<ShopSlot> readShopSlots(const QByteArray& shop) {
+    QList<ShopSlot> shopSlots;
+    if (shop.size() <= 8) return shopSlots;
+    FbReader r(shop);
+    int shopIndex = 0;
+    auto addInventory = [&](int inv, int stage) {
+        const int vec = r.vectorPos(inv, 0);
+        for (int k = 0; k < r.vectorCount(vec); k++) {
+            const int pos = vec + 4 + 4 * k;
+            shopSlots.append({shopIndex, stage, pos, static_cast<qint32>(r.u32(pos))});
+        }
+    };
+    for (int single : r.tables(r.root(), 0)) {
+        const int inv = r.child(single, 1);
+        if (inv) addInventory(inv, -1);
+        shopIndex++;
+    }
+    for (int multi : r.tables(r.root(), 1)) {
+        int stage = 0;
+        for (int inv : r.tables(multi, 1)) addInventory(inv, stage++);
+        shopIndex++;
+    }
+    return shopSlots;
+}
+
+QByteArray writeShopSlots(const QByteArray& shop, const QList<ShopSlot>& shopSlots) {
+    QByteArray out = shop;
+    for (const ShopSlot& slot : shopSlots) {
+        if (slot.pos + 4 > out.size()) continue;
+        qToLittleEndian<qint32>(slot.item, reinterpret_cast<uchar*>(out.data() + slot.pos));
+    }
+    return out;
 }
 
 // ============================================================== Spoiler-Log

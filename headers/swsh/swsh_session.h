@@ -46,7 +46,22 @@ struct EditSession {
     QList<FlatRecord> giftsOriginal, staticsOriginal, tradesOriginal;
     QByteArray placementBase;     // placement.gfpak mit randomisierten Items, ohne Starter-Modelle (leer = Original)
 
-    // Noch nicht bearbeitbare Bereiche: Ergebnis des Randomizers wird beim Export geschrieben
+    // Dyna-Raids (nest_hole_encount.bin in data_table.gfpak)
+    QList<NestTable> nests, nestsStart, nestsOriginal;
+
+    // Items: Boden/versteckt (placement.gfpak) und Laeden (shop_data.bin)
+    ItemInfo itemInfo;
+    bool itemInfoLoaded = false;
+    QList<ItemSpot> spots, spotsStart, spotsOriginal;
+    QList<ShopSlot> shopSlots, shopSlotsStart, shopSlotsOriginal;
+
+    // Pokemon-Daten: Entwicklungen nach dem Randomisieren (erkennt Aenderungen von Hand)
+    EvolutionTable evolutionsStart;
+
+    // Dyna-Hoehle und Kampfturm
+    QList<FlatRecord> lair, lairStart, lairOriginal, tower, towerStart, towerOriginal;
+
+    // Ergebnisse des Randomizers (fuer Info und Spoiler-Log)
     TrainerRandomizerResult trainerResult;
     QList<EvolutionChange> evolutionChanges;
     PokemonDataResult dataResult;

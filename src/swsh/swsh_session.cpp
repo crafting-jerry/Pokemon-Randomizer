@@ -669,6 +669,648 @@ edit::Section encounterSection(EditSession& session) {
     return section;
 }
 
+// ------------------------------------------------------------- Dyna-Raids
+
+bool sameNests(const QList<NestTable>& a, const QList<NestTable>& b) {
+    if (a.size() != b.size()) return false;
+    for (int t = 0; t < a.size(); t++) {
+        if (a[t].entries.size() != b[t].entries.size()) return false;
+        for (int e = 0; e < a[t].entries.size(); e++) {
+            const NestEntry& x = a[t].entries[e];
+            const NestEntry& y = b[t].entries[e];
+            if (x.species != y.species || x.form != y.form || x.gigantamax != y.gigantamax || x.ability != y.ability ||
+                x.gender != y.gender || x.flawlessIVs != y.flawlessIVs || x.probabilities != y.probabilities) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool sameNestTable(const NestTable& a, const NestTable& b) { return sameNests({a}, {b}); }
+
+edit::Section raidSection(EditSession& session) {
+    EditSession* s = &session;
+    edit::Section section;
+    section.title = "Dyna-Raids";
+    section.subtitle = "Pokémon in den Dyna-Nestern. Die Chancen gelten je Sternzahl (1–5 ★).";
+    int perVersion[3] = {0, 0, 0};
+    for (int t = 0; t < s->nests.size(); t++) {
+        const int version = qBound(0, static_cast<int>(s->nests[t].version), 2);
+        const int number = ++perVersion[version];
+        edit::Entry entry;
+        entry.group = version == 2 ? "Schild" : (version == 1 ? "Schwert" : "Beide Editionen");
+        entry.title = QString("Nest-Tabelle %1").arg(number);
+        entry.search = [s, t]() {
+            QString text;
+            for (const NestEntry& n : s->nests[t].entries)
+                if (n.species > 0) text += " " + s->texts.pokemonName(static_cast<int>(n.species), static_cast<int>(n.form));
+            return text;
+        };
+        entry.changed = [s, t]() { return t < s->nestsOriginal.size() && !sameNestTable(s->nests[t], s->nestsOriginal[t]); };
+        entry.build = [s, t]() {
+            edit::Content c;
+            c.hint = "G-Max = Gigadynamax-Raid. Perfekte DVs = Anzahl der DVs mit 31.";
+            edit::Table table;
+            table.title = "Pokémon";
+            table.columns = {"Pokémon", "G-Max", "1★", "2★", "3★", "4★", "5★", "Perfekte DVs"};
+            QList<int> visible;
+            for (int e = 0; e < s->nests[t].entries.size(); e++)
+                if (s->nests[t].entries[e].species > 0) visible.append(e);
+            table.rowCount = [visible]() { return static_cast<int>(visible.size()); };
+            table.row = [s, t, visible](int r) {
+                const int e = visible[r];
+                auto n = [s, t, e]() -> NestEntry& { return s->nests[t].entries[e]; };
+                const bool hasOrig = t < s->nestsOriginal.size() && e < s->nestsOriginal[t].entries.size();
+                auto o = [s, t, e]() -> const NestEntry& { return s->nestsOriginal[t].entries[e]; };
+                auto orig = [hasOrig, o](std::function<int(const NestEntry&)> fn) -> std::function<int()> {
+                    if (!hasOrig) return {};
+                    return [o, fn]() { return fn(o()); };
+                };
+                QList<edit::Field> fields;
+                fields << edit::picker("Pokémon", edit::Kind::Pokemon,
+                    [n]() { return edit::pokemonValue(static_cast<int>(n().species), static_cast<int>(n().form)); },
+                    [n](int v) {
+                        if (edit::speciesOf(v) <= 0) return;
+                        n().species = edit::speciesOf(v);
+                        n().form = edit::formOf(v);
+                    },
+                    orig([](const NestEntry& x) { return edit::pokemonValue(static_cast<int>(x.species), static_cast<int>(x.form)); }));
+                fields << edit::check("G-Max", [n]() { return n().gigantamax ? 1 : 0; }, [n](int v) { n().gigantamax = v ? 1 : 0; },
+                                      orig([](const NestEntry& x) { return x.gigantamax ? 1 : 0; }));
+                for (int k = 0; k < 5; k++) {
+                    fields << edit::number(QString("%1★").arg(k + 1), 0, 100,
+                        [n, k]() { return k < n().probabilities.size() ? static_cast<int>(n().probabilities[k]) : 0; },
+                        [n, k](int v) { if (k < n().probabilities.size()) n().probabilities[k] = v; },
+                        orig([k](const NestEntry& x) { return k < x.probabilities.size() ? static_cast<int>(x.probabilities[k]) : 0; }));
+                }
+                fields << edit::number("Perfekte DVs", 0, 6, [n]() { return static_cast<int>(n().flawlessIVs); },
+                                       [n](int v) { n().flawlessIVs = v; },
+                                       orig([](const NestEntry& x) { return static_cast<int>(x.flawlessIVs); }));
+                return fields;
+            };
+            c.tables << table;
+            return c;
+        };
+        section.entries.append(entry);
+    }
+    return section;
+}
+
+// ------------------------------------------------------------------ Items
+
+bool sameSpots(const QList<ItemSpot>& a, const QList<ItemSpot>& b) {
+    if (a.size() != b.size()) return false;
+    for (int i = 0; i < a.size(); i++) {
+        if (a[i].item != b[i].item || a[i].quantity != b[i].quantity) return false;
+    }
+    return true;
+}
+
+bool sameShop(const QList<ShopSlot>& a, const QList<ShopSlot>& b) {
+    if (a.size() != b.size()) return false;
+    for (int i = 0; i < a.size(); i++) {
+        if (a[i].item != b[i].item) return false;
+    }
+    return true;
+}
+
+edit::Section itemSection(EditSession& session) {
+    EditSession* s = &session;
+    edit::Section section;
+    section.title = "Items";
+    section.subtitle = "Items auf dem Boden, versteckte Items und die Angebote der Läden.";
+    if (!s->itemInfoLoaded) return section;
+
+    // Boden und versteckt, pro Gebiet
+    for (int hidden = 0; hidden <= 1; hidden++) {
+        QList<quint64> zones;
+        QHash<quint64, QList<int>> byZone;
+        for (int i = 0; i < s->spots.size(); i++) {
+            if (s->spots[i].hidden != (hidden == 1)) continue;
+            const quint64 z = s->spots[i].zoneId;
+            if (!byZone.contains(z)) zones.append(z);
+            byZone[z].append(i);
+        }
+        QHash<QString, int> seen;
+        for (quint64 z : zones) {
+            const QList<int> indexes = byZone.value(z);
+            QString place = zoneName(z, s->placeNames);
+            if (place.startsWith("GEBIET ", Qt::CaseInsensitive)) {
+                // Gebiete ohne Ortsnamen im Spiel (z. B. Gebaeude): kurze Kennung statt der langen Zahl
+                place = "Ort ohne Namen " + QString("%1").arg(z, 16, 16, QChar('0')).toUpper().left(4);
+            }
+            const int n = ++seen[place];
+            if (n > 1) place += QString(" (%1)").arg(n);
+            edit::Entry entry;
+            entry.group = hidden ? "Versteckte Items" : "Items auf dem Boden";
+            entry.title = place;
+            entry.search = [s, indexes]() {
+                QString text;
+                for (int i : indexes) text += " " + s->texts.itemName(s->spots[i].item);
+                return text;
+            };
+            entry.changed = [s, indexes]() {
+                for (int i : indexes) {
+                    if (i < s->spotsOriginal.size() &&
+                        (s->spots[i].item != s->spotsOriginal[i].item || s->spots[i].quantity != s->spotsOriginal[i].quantity)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            entry.build = [s, indexes, hidden]() {
+                edit::Content c;
+                c.hint = hidden ? "Versteckte Items (glitzernde Stellen). Ein Fundort kann mehrere mögliche Items haben."
+                                : "Items in Poké-Bällen auf dem Boden.";
+                edit::Table table;
+                table.title = "Items";
+                table.columns = {"Item", "Anzahl", "Hinweis"};
+                table.rowCount = [indexes]() { return static_cast<int>(indexes.size()); };
+                table.row = [s, indexes](int r) {
+                    const int i = indexes[r];
+                    const bool hasOrig = i < s->spotsOriginal.size();
+                    QList<edit::Field> fields;
+                    fields << edit::picker("Item", edit::Kind::Item, [s, i]() { return s->spots[i].item; },
+                        [s, i](int v) { if (v > 0 && s->itemInfo.hashById.contains(v)) s->spots[i].item = v; },
+                        hasOrig ? std::function<int()>([s, i]() { return s->spotsOriginal[i].item; }) : std::function<int()>());
+                    edit::Field q = edit::number("Anzahl", 1, 99, [s, i]() { return s->spots[i].quantity; },
+                        [s, i](int v) { s->spots[i].quantity = v; },
+                        hasOrig ? std::function<int()>([s, i]() { return s->spotsOriginal[i].quantity; }) : std::function<int()>());
+                    if (s->spots[i].quantityPos <= 0) q.set = {};
+                    fields << q;
+                    const int originalItem = hasOrig ? s->spotsOriginal[i].item : 0;
+                    const bool protectedItem = s->itemInfo.isProtected(originalItem);
+                    fields << edit::text("", [protectedItem]() {
+                        return protectedItem ? QString("TM oder Basis-Item im Original") : QString();
+                    });
+                    return fields;
+                };
+                c.tables << table;
+                return c;
+            };
+            section.entries.append(entry);
+        }
+    }
+
+    // Laeden
+    QList<QPair<int, int>> shops; // (Laden, Stufe)
+    QHash<qint64, QList<int>> slotsOf;
+    for (int i = 0; i < s->shopSlots.size(); i++) {
+        const qint64 key = static_cast<qint64>(s->shopSlots[i].shop) * 100 + (s->shopSlots[i].stage + 1);
+        if (!slotsOf.contains(key)) shops.append({s->shopSlots[i].shop, s->shopSlots[i].stage});
+        slotsOf[key].append(i);
+    }
+    for (const auto& shop : shops) {
+        const QList<int> indexes = slotsOf.value(static_cast<qint64>(shop.first) * 100 + (shop.second + 1));
+        edit::Entry entry;
+        entry.group = "Läden";
+        entry.title = QString("Laden %1").arg(shop.first + 1) +
+                      (shop.second >= 0 ? QString(" – Stufe %1").arg(shop.second + 1) : QString());
+        entry.search = [s, indexes]() {
+            QString text;
+            for (int i : indexes) text += " " + s->texts.itemName(s->shopSlots[i].item);
+            return text;
+        };
+        entry.changed = [s, indexes]() {
+            for (int i : indexes)
+                if (i < s->shopSlotsOriginal.size() && s->shopSlots[i].item != s->shopSlotsOriginal[i].item) return true;
+            return false;
+        };
+        entry.build = [s, indexes, shop]() {
+            edit::Content c;
+            c.hint = shop.second >= 0 ? "Pokémon-Center-Laden: das Angebot wächst mit der Anzahl der Orden (Stufe)."
+                                      : "Fester Laden. Die Anzahl der Angebote ist fest, die Items kannst du tauschen.";
+            QStringList first;
+            for (int i : indexes.mid(0, 4)) first << s->texts.itemName(s->shopSlotsOriginal.value(i).item);
+            c.hint += "\nIm Original: " + first.join(", ") + (indexes.size() > 4 ? " …" : "");
+            edit::Table table;
+            table.title = "Angebote";
+            table.columns = {"Item"};
+            table.rowCount = [indexes]() { return static_cast<int>(indexes.size()); };
+            table.row = [s, indexes](int r) {
+                const int i = indexes[r];
+                const bool hasOrig = i < s->shopSlotsOriginal.size();
+                return QList<edit::Field>{edit::picker("Item", edit::Kind::Item, [s, i]() { return s->shopSlots[i].item; },
+                    [s, i](int v) { if (v > 0) s->shopSlots[i].item = v; },
+                    hasOrig ? std::function<int()>([s, i]() { return s->shopSlotsOriginal[i].item; }) : std::function<int()>())};
+            };
+            c.tables << table;
+            return c;
+        };
+        section.entries.append(entry);
+    }
+    return section;
+}
+
+// ---------------------------------------------------------- Pokemon-Daten
+
+QStringList evolutionMethods() {
+    static const QStringList names = {
+        "—", "Freundschaft", "Freundschaft (Tag)", "Freundschaft (Nacht)", "Level", "Tausch", "Tausch mit Item",
+        "Tausch gegen Pokémon", "Item benutzen", "Level (Ang. > Vert.)", "Level (Ang. = Vert.)", "Level (Ang. < Vert.)",
+        "Level (Zufall A)", "Level (Zufall B)", "Level (Ninjask)", "Level (Ninjatom)", "Level (Schönheit)",
+        "Item (männlich)", "Item (weiblich)", "Level mit Item (Tag)", "Level mit Item (Nacht)", "Level mit Attacke",
+        "Level mit Pokémon im Team", "Level (männlich)", "Level (weiblich)", "Level (Magnetfeld)", "Level (Moosfels)",
+        "Level (Eisfels)", "Level (Konsole kopfüber)", "Zuneigung + Attackentyp", "Level mit Unlicht-Pokémon",
+        "Level bei Regen", "Level (Tag)", "Level (Nacht)", "Level (weiblich, Form 1)", "(unbenutzt)", "Level (Edition)",
+        "Level (Edition, Tag)", "Level (Edition, Nacht)", "Level (Gipfel)", "Level (Abend)", "Level (Ultrapforte)",
+        "Item (Ultrapforte)", "Volltreffer im Kampf", "KP im Kampf verloren", "Drehen", "Level (Wesen Hoch)",
+        "Level (Wesen Tief)", "Turm des Unlichts", "Turm des Wassers"};
+    QStringList out;
+    for (int i = 0; i < names.size(); i++) out << QString("%1: %2").arg(i).arg(names[i]);
+    return out;
+}
+
+bool sameEvolutions(const QList<Evolution>& a, const QList<Evolution>& b) {
+    if (a.size() != b.size()) return false;
+    for (int i = 0; i < a.size(); i++) {
+        if (a[i].method != b[i].method || a[i].argument != b[i].argument || a[i].species != b[i].species ||
+            a[i].form != b[i].form || a[i].level != b[i].level) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool samePersonalEntry(const EditSession& s, int index) {
+    const QByteArray a = s.work.personal.save().mid(index * kPersonalSize, kPersonalSize);
+    const QByteArray b = s.original.personal.save().mid(index * kPersonalSize, kPersonalSize);
+    return a == b && s.work.learnsets.get(index) == s.original.learnsets.get(index) &&
+           sameEvolutions(s.work.evolutions.get(index), s.original.evolutions.get(index));
+}
+
+edit::Section dataSection(EditSession& session) {
+    EditSession* s = &session;
+    edit::Section section;
+    section.title = "Pokémon-Daten";
+    section.subtitle = "Typen, Basiswerte, Fähigkeiten, Attacken, TMs/TPs und Entwicklungen jedes Pokémon.";
+    static const QList<QPair<int, QString>> generations = {
+        {151, "Kanto (1–151)"}, {251, "Johto (152–251)"}, {386, "Hoenn (252–386)"}, {493, "Sinnoh (387–493)"},
+        {649, "Einall (494–649)"}, {721, "Kalos (650–721)"}, {809, "Alola (722–809)"}, {898, "Galar (810–898)"}};
+    const PersonalTable& p = s->work.personal;
+    for (int species = 1; species <= kMaxSpecies; species++) {
+        const int forms = qMax(1, p.formCount(p.indexOf(species, 0)));
+        for (int form = 0; form < forms; form++) {
+            const int index = p.indexOf(species, form);
+            if (index <= 0 || !p.isPresent(index)) continue;
+            edit::Entry entry;
+            for (const auto& g : generations) {
+                if (species <= g.first) {
+                    entry.group = g.second;
+                    break;
+                }
+            }
+            entry.title = QString("#%1 %2").arg(species, 3, 10, QChar('0')).arg(s->texts.pokemonName(species, form));
+            entry.changed = [s, index]() { return !samePersonalEntry(*s, index); };
+            entry.build = [s, index]() {
+                edit::Content c;
+                c.fieldsPerLine = 4;
+                c.hint = "Werte gelten nur für diese Form. Entwicklungsreihen werden beim Bearbeiten nicht automatisch angeglichen.";
+                PersonalTable* w = &s->work.personal;
+                const PersonalTable* o = &s->original.personal;
+                c.fields << edit::picker("Typ 1", edit::Kind::Type, [w, index]() { return w->type1(index); },
+                                         [w, index](int v) { w->setTypes(index, v, w->type2(index)); },
+                                         [o, index]() { return o->type1(index); });
+                c.fields << edit::picker("Typ 2", edit::Kind::Type, [w, index]() { return w->type2(index); },
+                                         [w, index](int v) { w->setTypes(index, w->type1(index), v); },
+                                         [o, index]() { return o->type2(index); });
+                for (int a = 0; a < 3; a++) {
+                    c.fields << edit::picker(a == 2 ? QString("Versteckte Fähigkeit") : QString("Fähigkeit %1").arg(a + 1),
+                                             edit::Kind::Ability, [w, index, a]() { return w->ability(index, a); },
+                                             [w, index, a](int v) { if (v > 0) w->setAbility(index, a, v); },
+                                             [o, index, a]() { return o->ability(index, a); });
+                }
+                c.fields << edit::text("Summe der Basiswerte", [w, index]() {
+                    int sum = 0;
+                    for (int k = 0; k < 6; k++) sum += w->stat(index, k);
+                    return QString::number(sum);
+                });
+                static const int order[6] = {0, 1, 2, 4, 5, 3};  // KP, Ang, Vert, SpAng, SpVert, Init
+                for (int k = 0; k < 6; k++) {
+                    const int st = order[k];
+                    edit::Field f = edit::number(kStatNames[k], 1, 255, [w, index, st]() { return w->stat(index, st); },
+                                                 [w, index, st](int v) { w->setStat(index, st, v); },
+                                                 [o, index, st]() { return o->stat(index, st); });
+                    f.rebuild = true;   // Summe aktualisieren
+                    c.fields << f;
+                }
+
+                // Level-Attacken
+                LearnsetTable* lw = &s->work.learnsets;
+                const LearnsetTable* lo = &s->original.learnsets;
+                edit::Table moves;
+                moves.title = "Level-Attacken";
+                moves.columns = {"Level", "Attacke"};
+                moves.rowCount = [lw, index]() { return static_cast<int>(lw->get(index).size()); };
+                moves.row = [lw, lo, index](int r) {
+                    const bool hasOrig = r < lo->get(index).size();
+                    QList<edit::Field> fields;
+                    edit::Field level = edit::number("Level", 0, 100, [lw, index, r]() { return lw->get(index).value(r).second; },
+                        [lw, index, r](int v) { auto l = lw->get(index); if (r < l.size()) { l[r].second = v; lw->set(index, l); } },
+                        hasOrig ? std::function<int()>([lo, index, r]() { return lo->get(index).value(r).second; }) : std::function<int()>());
+                    level.info = "0 = beim Entwickeln";
+                    fields << level;
+                    fields << edit::picker("Attacke", edit::Kind::Move, [lw, index, r]() { return lw->get(index).value(r).first; },
+                        [lw, index, r](int v) { auto l = lw->get(index); if (r < l.size() && v > 0) { l[r].first = v; lw->set(index, l); } },
+                        hasOrig ? std::function<int()>([lo, index, r]() { return lo->get(index).value(r).first; }) : std::function<int()>());
+                    return fields;
+                };
+                moves.canAdd = [lw, index]() { return lw->get(index).size() < kLearnsetSize / 4; };
+                moves.add = [lw, index]() {
+                    auto l = lw->get(index);
+                    const int level = l.isEmpty() ? 1 : l.last().second;
+                    l.append({1, level});
+                    lw->set(index, l);
+                };
+                moves.canRemove = [lw, index]() { return lw->get(index).size() > 1; };
+                moves.remove = [lw, index](int r) {
+                    auto l = lw->get(index);
+                    if (r >= 0 && r < l.size()) l.removeAt(r);
+                    lw->set(index, l);
+                };
+                c.tables << moves;
+
+                // Entwicklungen
+                EvolutionTable* ew = &s->work.evolutions;
+                const EvolutionTable* eo = &s->original.evolutions;
+                edit::Table evos;
+                evos.title = "Entwicklungen";
+                evos.columns = {"Methode", "Wert", "Entwickelt sich zu", "Level"};
+                evos.rowCount = [ew, index]() { return static_cast<int>(ew->get(index).size()); };
+                evos.row = [ew, eo, index](int r) {
+                    const bool hasOrig = r < eo->get(index).size();
+                    auto update = [ew, index, r](std::function<void(Evolution&)> fn) {
+                        QList<Evolution> l = ew->get(index);
+                        if (r < l.size()) { fn(l[r]); ew->set(index, l); }
+                    };
+                    auto orig = [eo, index, r, hasOrig](std::function<int(const Evolution&)> fn) -> std::function<int()> {
+                        if (!hasOrig) return {};
+                        return [eo, index, r, fn]() { return fn(eo->get(index)[r]); };
+                    };
+                    QList<edit::Field> fields;
+                    fields << edit::choice("Methode", evolutionMethods(), [ew, index, r]() { return ew->get(index).value(r).method; },
+                                           [update](int v) { update([v](Evolution& e) { e.method = v; }); },
+                                           orig([](const Evolution& e) { return e.method; }));
+                    edit::Field arg = edit::number("Wert", 0, 65535, [ew, index, r]() { return ew->get(index).value(r).argument; },
+                                                   [update](int v) { update([v](Evolution& e) { e.argument = v; }); },
+                                                   orig([](const Evolution& e) { return e.argument; }));
+                    arg.info = "Zusatzwert der Methode: Item-Nr. (Item benutzen, mit Item), Attacken-Nr., Pokémon-Nr. oder Typ.";
+                    fields << arg;
+                    fields << edit::picker("Ziel", edit::Kind::Pokemon,
+                        [ew, index, r]() { const Evolution e = ew->get(index).value(r); return edit::pokemonValue(e.species, e.form); },
+                        [update](int v) { if (edit::speciesOf(v) > 0) update([v](Evolution& e) { e.species = edit::speciesOf(v); e.form = edit::formOf(v); }); },
+                        orig([](const Evolution& e) { return edit::pokemonValue(e.species, e.form); }));
+                    fields << edit::number("Level", 0, 100, [ew, index, r]() { return ew->get(index).value(r).level; },
+                                           [update](int v) { update([v](Evolution& e) { e.level = v; }); },
+                                           orig([](const Evolution& e) { return e.level; }));
+                    return fields;
+                };
+                evos.canAdd = [ew, index]() { return ew->get(index).size() < ew->rawFile(index).size() / 8; };
+                evos.add = [ew, index, s]() {
+                    QList<Evolution> l = ew->get(index);
+                    const QPair<int, int> self = s->work.personal.speciesForm(index);
+                    Evolution e;
+                    e.method = 4;
+                    e.species = self.first;
+                    e.form = self.second;
+                    e.level = 100;
+                    l.append(e);
+                    ew->set(index, l);
+                };
+                evos.remove = [ew, index](int r) {
+                    QList<Evolution> l = ew->get(index);
+                    if (r >= 0 && r < l.size()) l.removeAt(r);
+                    ew->set(index, l);
+                };
+                c.tables << evos;
+
+                // TMs und TPs
+                for (int kind = 0; kind < 2; kind++) {
+                    edit::Table tms;
+                    tms.title = kind == 0 ? "TMs" : "TPs";
+                    tms.columns = {"Nr.", "Attacke", "Lernbar"};
+                    const QList<int>* list = kind == 0 ? &kTMMoves : &kTRMoves;
+                    tms.rowCount = [list]() { return static_cast<int>(list->size()); };
+                    tms.row = [s, w, o, index, kind, list](int r) {
+                        QList<edit::Field> fields;
+                        fields << edit::text("", [kind, r]() { return QString("%1%2").arg(kind == 0 ? "TM" : "TP").arg(r, 2, 10, QChar('0')); });
+                        const int move = list->value(r);
+                        fields << edit::text("", [s, move]() { return s->texts.moveName(move); });
+                        if (kind == 0) {
+                            fields << edit::check("Lernbar", [w, index, r]() { return w->canLearnTM(index, r) ? 1 : 0; },
+                                                  [w, index, r](int v) { w->setTM(index, r, v != 0); },
+                                                  [o, index, r]() { return o->canLearnTM(index, r) ? 1 : 0; });
+                        } else {
+                            fields << edit::check("Lernbar", [w, index, r]() { return w->canLearnTR(index, r) ? 1 : 0; },
+                                                  [w, index, r](int v) { w->setTR(index, r, v != 0); },
+                                                  [o, index, r]() { return o->canLearnTR(index, r) ? 1 : 0; });
+                        }
+                        return fields;
+                    };
+                    c.tables << tms;
+                }
+                return c;
+            };
+            section.entries.append(entry);
+        }
+    }
+    return section;
+}
+
+// ------------------------------------------------- Dyna-Hoehle und Kampfturm
+
+edit::Section facilitySection(EditSession& session) {
+    EditSession* s = &session;
+    edit::Section section;
+    section.title = "Dyna-Höhle & Kampfturm";
+    section.subtitle = "Leih- und Gegner-Pokémon der Dynamax-Abenteuer und die Pokémon im Kampfturm.";
+
+    for (int i = 0; i < s->lair.size() && i < s->lairOriginal.size(); i++) {
+        const FlatRecord& o = s->lairOriginal[i];
+        if (o.get(lair::Species) <= 0) continue;
+        edit::Entry entry;
+        entry.group = o.get(lair::IsSingleCapture) != 0 ? "Dyna-Höhle: Legendäre" : "Dyna-Höhle: Leih- und Gegner-Pokémon";
+        entry.title = pokemonText(*s, static_cast<int>(o.get(lair::Species)), static_cast<int>(o.get(lair::Form))) +
+                      "  ·  Lv. " + QString::number(o.get(lair::Level));
+        entry.search = [s, i]() {
+            return s->texts.pokemonName(static_cast<int>(s->lair[i].get(lair::Species)), static_cast<int>(s->lair[i].get(lair::Form)));
+        };
+        entry.changed = [s, i]() { return !sameRecord(s->lair[i], s->lairOriginal[i]); };
+        entry.build = [s, i]() {
+            edit::Content c;
+            QList<FlatRecord>* l = &s->lair;
+            const QList<FlatRecord>* o = &s->lairOriginal;
+            c.fieldsPerLine = 4;
+            c.hint = "Gigadynamax: 2 = Gigadynamax-Form, 1 = normal (wie im Spiel gespeichert).";
+            c.fields << recordPokemon("Pokémon", l, o, i, lair::Species, lair::Form);
+            c.fields << recordNumber("Level", l, o, i, lair::Level, 1, 100);
+            c.fields << recordNumber("Gigadynamax", l, o, i, lair::GigantamaxState, 0, 2);
+            for (int k = 0; k < 4; k++) {
+                c.fields << recordPicker(QString("Attacke %1").arg(k + 1), edit::Kind::Move, l, o, i, lair::Move0 + k);
+            }
+            edit::Field ability = recordNumber("Fähigkeit (Nr.)", l, o, i, lair::Ability, -1, 4);
+            ability.info = "Fähigkeit als Zahl, wie im Spiel gespeichert.";
+            c.fields << ability;
+            const int ivs[6] = {lair::IvHp, lair::IvAtk, lair::IvDef, lair::IvSpa, lair::IvSpd, lair::IvSpe};
+            c.fields << recordIvs(l, o, i, ivs);
+            return c;
+        };
+        section.entries.append(entry);
+    }
+
+    for (int i = 0; i < s->tower.size() && i < s->towerOriginal.size(); i++) {
+        const FlatRecord& o = s->towerOriginal[i];
+        if (o.get(tower::Species) <= 0) continue;
+        edit::Entry entry;
+        entry.group = "Kampfturm";
+        entry.title = QString("#%1 ").arg(i + 1) +
+                      pokemonText(*s, static_cast<int>(o.get(tower::Species)), static_cast<int>(o.get(tower::Form)));
+        entry.search = [s, i]() {
+            return s->texts.pokemonName(static_cast<int>(s->tower[i].get(tower::Species)), static_cast<int>(s->tower[i].get(tower::Form)));
+        };
+        entry.changed = [s, i]() { return !sameRecord(s->tower[i], s->towerOriginal[i]); };
+        entry.build = [s, i]() {
+            edit::Content c;
+            QList<FlatRecord>* l = &s->tower;
+            const QList<FlatRecord>* o = &s->towerOriginal;
+            c.fieldsPerLine = 4;
+            c.hint = "Aus diesen Pokémon stellt der Kampfturm die Teams zusammen (Level 50).";
+            c.fields << recordPokemon("Pokémon", l, o, i, tower::Species, tower::Form);
+            c.fields << recordPicker("Item", edit::Kind::Item, l, o, i, tower::HeldItem);
+            c.fields << recordChoice("Wesen", natureChoicesWithRandom(), l, o, i, tower::Nature);
+            for (int k = 0; k < 4; k++) {
+                c.fields << recordPicker(QString("Attacke %1").arg(k + 1), edit::Kind::Move, l, o, i, tower::Move0 + k);
+            }
+            const int ivs[6] = {tower::IvHp, tower::IvAtk, tower::IvDef, tower::IvSpa, tower::IvSpd, tower::IvSpe};
+            c.fields << recordIvs(l, o, i, ivs);
+            return c;
+        };
+        section.entries.append(entry);
+    }
+    return section;
+}
+
+const QString kShopFile = "bin/appli/shop/bin/shop_data.bin";
+
+// ------------------------------------------------ Spoiler-Log nach Bearbeitung
+
+// Dyna-Raids: unveraendert = Ergebnis des Randomizers, sonst alle Nester, die vom Dump abweichen
+RaidResult raidLog(const EditSession& s) {
+    if (sameNests(s.nests, s.nestsStart)) return s.raids;
+    RaidResult out;
+    int perVersion[3] = {0, 0, 0};
+    for (int t = 0; t < s.nests.size(); t++) {
+        const NestTable& table = s.nests[t];
+        RaidResult::Den den;
+        den.shield = table.version == 2;
+        den.index = perVersion[qBound(0, static_cast<int>(table.version), 2)]++;
+        if (t < s.nestsOriginal.size() && sameNestTable(table, s.nestsOriginal[t])) continue;
+        for (const NestEntry& n : table.entries) {
+            if (n.species <= 0) continue;
+            int star = 4;
+            for (int k = 0; k < n.probabilities.size() && k < 5; k++) {
+                if (n.probabilities[k] > 0) { star = k; break; }
+            }
+            den.entries.append({StarterChoice{static_cast<int>(n.species), static_cast<int>(n.form) + (n.gigantamax ? 1000 : 0)},
+                                star + 1});
+        }
+        out.dens.append(den);
+    }
+    return out;
+}
+
+// Items: unveraendert = Ergebnis des Randomizers, sonst Zaehlung gegenueber dem Dump
+ItemResult itemLog(const EditSession& s) {
+    ItemResult out = s.items;
+    if (s.itemInfoLoaded && !sameSpots(s.spots, s.spotsStart)) {
+        const bool randomized = !s.items.placedItems.isEmpty();
+        out.fieldItems = out.hiddenItems = 0;
+        out.placedItems.clear();
+        for (int i = 0; i < s.spots.size(); i++) {
+            const bool changed = i >= s.spotsOriginal.size() || s.spots[i].item != s.spotsOriginal[i].item ||
+                                 s.spots[i].quantity != s.spotsOriginal[i].quantity;
+            if (changed) (s.spots[i].hidden ? out.hiddenItems : out.fieldItems)++;
+            if (changed || randomized) out.placedItems[s.spots[i].item] += 1;
+        }
+    }
+    if (!sameShop(s.shopSlots, s.shopSlotsStart)) {
+        out.shopItems = 0;
+        for (int i = 0; i < s.shopSlots.size(); i++) {
+            if (i >= s.shopSlotsOriginal.size() || s.shopSlots[i].item != s.shopSlotsOriginal[i].item) out.shopItems++;
+        }
+    }
+    return out;
+}
+
+// Dyna-Hoehle: unveraendert = Ergebnis des Randomizers, sonst alle Eintraege, die vom Dump abweichen
+FacilityResult facilityLog(const EditSession& s) {
+    FacilityResult out = s.facilities;
+    if (!sameRecords(s.lair, s.lairStart)) {
+        out.lairPokemon.clear();
+        out.lairLegends.clear();
+        for (int i = 0; i < s.lair.size() && i < s.lairOriginal.size(); i++) {
+            const FlatRecord& r = s.lair[i];
+            if (r.get(lair::Species) <= 0 || sameRecord(r, s.lairOriginal[i])) continue;
+            const StarterChoice c{static_cast<int>(r.get(lair::Species)),
+                                  static_cast<int>(r.get(lair::Form)) + (r.get(lair::GigantamaxState) == 2 ? 1000 : 0)};
+            (r.get(lair::IsSingleCapture) != 0 ? out.lairLegends : out.lairPokemon).append(c);
+        }
+    }
+    if (!sameRecords(s.tower, s.towerStart)) {
+        out.towerPokemon.clear();
+        for (int i = 0; i < s.tower.size() && i < s.towerOriginal.size(); i++) {
+            const FlatRecord& r = s.tower[i];
+            if (r.get(tower::Species) <= 0 || sameRecord(r, s.towerOriginal[i])) continue;
+            out.towerPokemon.append({static_cast<int>(r.get(tower::Species)), static_cast<int>(r.get(tower::Form))});
+        }
+    }
+    return out;
+}
+
+// Entwicklungen: Aenderungen des Randomizers + von Hand geaenderte Eintraege
+QList<EvolutionChange> evolutionLog(const EditSession& s) {
+    QList<EvolutionChange> out = s.evolutionChanges;
+    auto describe = [&s](const Evolution& e) {
+        const QStringList methods = evolutionMethods();
+        QString text = methods.value(e.method, QString::number(e.method)).section(": ", 1);
+        if (e.method == 4) text = QString("ab Level %1").arg(e.level);
+        else if (e.level > 0) text += QString(", ab Level %1").arg(e.level);
+        if (e.argument > 0) {
+            if (e.method == 6 || e.method == 8 || e.method == 17 || e.method == 18 || e.method == 19 || e.method == 20) {
+                text += " (" + s.texts.itemName(e.argument) + ")";
+            } else {
+                text += QString(" (Wert %1)").arg(e.argument);
+            }
+        }
+        return text;
+    };
+    for (int index = 0; index < s.work.personal.count(); index++) {
+        const QList<Evolution> now = s.work.evolutions.get(index);
+        const QList<Evolution> start = s.evolutionsStart.get(index);
+        if (sameEvolutions(now, start)) continue;
+        const QList<Evolution> before = s.original.evolutions.get(index);
+        const QPair<int, int> self = s.work.personal.speciesForm(index);
+        out.erase(std::remove_if(out.begin(), out.end(), [&self](const EvolutionChange& c) {
+            return c.fromSpecies == self.first && c.fromForm == self.second;
+        }), out.end());
+        for (int k = 0; k < qMax(now.size(), before.size()); k++) {
+            if (k < now.size() && k < before.size() && sameEvolutions({now[k]}, {before[k]})) continue;
+            EvolutionChange c;
+            c.fromSpecies = self.first;
+            c.fromForm = self.second;
+            const Evolution& target = k < now.size() ? now[k] : before[k];
+            c.toSpecies = target.species;
+            c.toForm = target.form;
+            c.before = k < before.size() ? describe(before[k]) : QString("—");
+            c.after = (k < now.size() ? describe(now[k]) : QString("entfernt")) + " (von Hand)";
+            out.append(c);
+        }
+    }
+    return out;
+}
+
+
 bool loadWildFrom(const QByteArray& dataTable, WildArchive out[4], QString* error) {
     GfPak pack;
     if (!pack.load(dataTable)) {
@@ -726,6 +1368,47 @@ bool openSession(EditSession& s, const EncounterResult* encounters, QString* err
             return fail("Die randomisierten Geschenke/Begegnungen passen nicht zu den Originaldaten.");
         }
     }
+
+    // Dyna-Raids (fehlt die Tabelle, bleibt der Reiter leer)
+    auto readNests = [](const QByteArray& table, QList<NestTable>& out) {
+        GfPak pack;
+        if (!pack.load(table)) return;
+        const int index = pack.indexOf("nest_hole_encount.bin");
+        if (index >= 0) readNestTables(pack.file(index), out);
+    };
+    readNests(originalTable, s.nestsOriginal);
+    readNests(s.dataTable, s.nests);
+    if (s.nests.size() != s.nestsOriginal.size()) s.nests = s.nestsOriginal;
+    s.nestsStart = s.nests;
+
+    // Items auf dem Boden / versteckt und Laeden
+    s.itemInfoLoaded = s.itemInfo.load(s.romfs);
+    if (s.itemInfoLoaded) {
+        const QByteArray placementOriginal = readFile(s.romfs + "/" + path::Placement);
+        s.spotsOriginal = readItemSpots(placementOriginal, s.itemInfo);
+        s.spots = s.placementBase.isEmpty() ? s.spotsOriginal : readItemSpots(s.placementBase, s.itemInfo);
+        if (s.spots.size() != s.spotsOriginal.size()) s.spots = s.spotsOriginal;
+        s.spotsStart = s.spots;
+    }
+    s.shopSlotsOriginal = readShopSlots(readFile(s.romfs + "/" + kShopFile));
+    s.shopSlots = s.items.shops.isEmpty() ? s.shopSlotsOriginal : readShopSlots(s.items.shops);
+    if (s.shopSlots.size() != s.shopSlotsOriginal.size()) s.shopSlots = s.shopSlotsOriginal;
+    s.shopSlotsStart = s.shopSlots;
+
+    // Pokemon-Daten
+    s.evolutionsStart = s.work.evolutions;
+
+    // Dyna-Hoehle und Kampfturm
+    s.lairOriginal = readFlatArchive(readFile(s.romfs + "/" + kLairFile), lair::kSizes, &ok);
+    if (!ok) s.lairOriginal.clear();
+    s.lair = s.facilities.lair.isEmpty() ? s.lairOriginal : readFlatArchive(s.facilities.lair, lair::kSizes, &ok);
+    if (s.lair.size() != s.lairOriginal.size()) s.lair = s.lairOriginal;
+    s.lairStart = s.lair;
+    s.towerOriginal = readFlatArchive(readFile(s.romfs + "/" + kTowerFile), tower::kSizes, &ok);
+    if (!ok) s.towerOriginal.clear();
+    s.tower = s.facilities.tower.isEmpty() ? s.towerOriginal : readFlatArchive(s.facilities.tower, tower::kSizes, &ok);
+    if (s.tower.size() != s.towerOriginal.size()) s.tower = s.towerOriginal;
+    s.towerStart = s.tower;
     return true;
 }
 
@@ -767,7 +1450,12 @@ edit::Catalog buildCatalog(const EditSession& s) {
 }
 
 QList<edit::Section> buildSections(EditSession& s) {
-    return {trainerSection(s), wildSection(s), encounterSection(s)};
+    QList<edit::Section> sections = {trainerSection(s), wildSection(s), encounterSection(s)};
+    if (!s.nests.isEmpty()) sections << raidSection(s);
+    if (s.itemInfoLoaded) sections << itemSection(s);
+    sections << dataSection(s);
+    if (!s.lair.isEmpty() || !s.tower.isEmpty()) sections << facilitySection(s);
+    return sections;
 }
 
 int changedTrainerCount(const EditSession& s) {
@@ -787,8 +1475,13 @@ bool sessionHasChanges(const EditSession& s) {
     for (int i = 0; i < 4; i++) {
         if (!sameArchive(s.wild[i], s.wildOriginal[i])) return true;
     }
-    return !s.placementBase.isEmpty() || !s.items.shops.isEmpty() || s.dataResult.personalChanged ||
-           s.dataResult.learnsetsChanged || !s.work.evolutions.changedIndexes().isEmpty() || !s.evolutionChanges.isEmpty();
+    if (!sameNests(s.nests, s.nestsOriginal) || !sameSpots(s.spots, s.spotsOriginal) ||
+        !sameShop(s.shopSlots, s.shopSlotsOriginal) || !sameRecords(s.lair, s.lairOriginal) ||
+        !sameRecords(s.tower, s.towerOriginal)) {
+        return true;
+    }
+    return !s.placementBase.isEmpty() || s.work.personal.save() != s.original.personal.save() ||
+           s.work.learnsets.save() != s.original.learnsets.save() || !s.work.evolutions.changedIndexes().isEmpty();
 }
 
 bool exportSession(const EditSession& s, const QString& romfsOut, const QString& spoilerPath,
@@ -814,15 +1507,17 @@ bool exportSession(const EditSession& s, const QString& romfsOut, const QString&
     // data_table.gfpak: wilde Pokemon (+ Raids aus dem Randomizer)
     bool wildEdited = false;
     for (int i = 0; i < 4; i++) wildEdited = wildEdited || !sameArchive(s.wild[i], s.wildStart[i]);
-    if (wildEdited || s.dataTableChanged) {
+    const bool raidsEdited = !sameNests(s.nests, s.nestsStart);
+    if (wildEdited || raidsEdited || s.dataTableChanged) {
         QByteArray table = s.dataTable;
-        if (wildEdited) {
+        if (wildEdited || raidsEdited) {
             GfPak pack;
             if (!pack.load(table)) return fail("Die Datei data_table.gfpak konnte nicht gelesen werden.");
             for (int i = 0; i < 4; i++) {
                 if (sameArchive(s.wild[i], s.wildStart[i])) continue;
                 pack.setFile(pack.indexOf(kWildFiles[i]), s.wild[i].save());
             }
+            if (raidsEdited) pack.setFile(pack.indexOf("nest_hole_encount.bin"), writeNestTables(s.nests));
             table = pack.save();
         }
         written &= writeFile(romfsOut + "/" + kDataTable, table);
@@ -835,8 +1530,14 @@ bool exportSession(const EditSession& s, const QString& romfsOut, const QString&
     }
     if (!sameRecords(s.trades, s.tradesOriginal)) written &= writeFile(romfsOut + "/" + path::Trades, writeFlatArchive(s.trades, trade::kSizes));
 
-    // placement.gfpak: Items (Randomizer) + Starter-Modelle
+    // placement.gfpak: Items (Randomizer und von Hand) + Starter-Modelle
     QByteArray placement = s.placementBase;
+    const bool spotsEdited = s.itemInfoLoaded && !sameSpots(s.spots, s.spotsStart);
+    if (spotsEdited) {
+        const QByteArray base = placement.isEmpty() ? readFile(s.romfs + "/" + path::Placement) : placement;
+        placement = writeItemSpots(base, s.spots, s.itemInfo);
+        if (placement.isEmpty()) return fail("Die Items konnten nicht in placement.gfpak geschrieben werden.");
+    }
     bool startersChanged = false;
     int starter[3] = {0, 0, 0};
     for (int k = 0; k < 3; k++) {
@@ -852,12 +1553,30 @@ bool exportSession(const EditSession& s, const QString& romfsOut, const QString&
     }
     if (!placement.isEmpty()) written &= writeFile(romfsOut + "/" + path::Placement, placement);
 
-    // Uebrige Bereiche aus dem Randomizer
+    // Pokemon-Daten
     written &= s.work.evolutions.save(romfsOut);
-    written &= writeFacilities(romfsOut, s.facilities);
-    if (s.dataResult.personalChanged) written &= writeFile(romfsOut + "/" + path::Personal, s.work.personal.save());
-    if (s.dataResult.learnsetsChanged) written &= writeFile(romfsOut + "/" + path::Learnsets, s.work.learnsets.save());
-    if (!s.items.shops.isEmpty()) written &= writeFile(romfsOut + "/bin/appli/shop/bin/shop_data.bin", s.items.shops);
+    const bool personalChanged = s.work.personal.save() != s.original.personal.save();
+    const bool learnsetsChanged = s.work.learnsets.save() != s.original.learnsets.save();
+    if (personalChanged) written &= writeFile(romfsOut + "/" + path::Personal, s.work.personal.save());
+    if (learnsetsChanged) written &= writeFile(romfsOut + "/" + path::Learnsets, s.work.learnsets.save());
+
+    // Laeden
+    const bool shopsEdited = !sameShop(s.shopSlots, s.shopSlotsStart);
+    if (shopsEdited) {
+        const QByteArray shop = writeShopSlots(readFile(s.romfs + "/" + kShopFile), s.shopSlots);
+        if (shop.isEmpty()) return fail("Die Läden (shop_data.bin) konnten nicht geschrieben werden.");
+        written &= writeFile(romfsOut + "/" + kShopFile, shop);
+    } else if (!s.items.shops.isEmpty()) {
+        written &= writeFile(romfsOut + "/" + kShopFile, s.items.shops);
+    }
+
+    // Dyna-Hoehle und Kampfturm
+    if (!s.lairOriginal.isEmpty() && !sameRecords(s.lair, s.lairOriginal)) {
+        written &= writeFile(romfsOut + "/" + kLairFile, writeFlatArchive(s.lair, lair::kSizes));
+    }
+    if (!s.towerOriginal.isEmpty() && !sameRecords(s.tower, s.towerOriginal)) {
+        written &= writeFile(romfsOut + "/" + kTowerFile, writeFlatArchive(s.tower, tower::kSizes));
+    }
 
     // Tauschpartner nennen im Dialog ihr neues Pokemon
     const QList<EncounterChange> changes = encounterChanges(s);
@@ -874,8 +1593,18 @@ bool exportSession(const EditSession& s, const QString& romfsOut, const QString&
         encounterLog.changes = changes;
         QList<SpoilerSection> sections = encounterSpoiler(encounterLog, s.work, s.texts);
         sections += wildSpoiler(wildLog(s), s.work, s.texts, s.placeNames, s.version);
-        sections += extrasSpoiler(s.evolutionChanges, s.raids, s.items, s.texts, s.version);
-        sections += dataSpoiler(s.dataResult, s.facilities, s.work, s.texts);
+        PokemonDataResult dataLog = s.dataResult;
+        dataLog.personalChanged = personalChanged;
+        dataLog.learnsetsChanged = learnsetsChanged;
+        const QList<EvolutionChange> evolutions = evolutionLog(s);
+        QList<SpoilerSection> extras = extrasSpoiler(evolutions, raidLog(s), itemLog(s), s.texts, s.version);
+        bool evolutionsByHand = false;
+        for (const EvolutionChange& c : evolutions) evolutionsByHand = evolutionsByHand || c.after.endsWith("(von Hand)");
+        for (SpoilerSection& section : extras) {
+            if (evolutionsByHand && section.title == "Tausch-Entwicklungen") section.title = "Entwicklungen";
+        }
+        sections += extras;
+        sections += dataSpoiler(dataLog, facilityLog(s), s.work, s.texts);
         writeSpoiler(spoilerPath, s.work, s.texts, trainerSettings, sections, seedText, s.version, editedTrainers);
     }
     return true;
