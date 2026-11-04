@@ -62,6 +62,7 @@ ModernRandomizerWindow::ModernRandomizerWindow(SVRandomizerWindow* classicWindow
     pages->addWidget(buildItemsPage());
     pages->addWidget(buildTrainerPage());
     pages->addWidget(buildRaidsBossesPage());
+    pages->addWidget(workspace);
     middle->addWidget(pages, 1);
 
     root->addLayout(middle, 1);
@@ -76,6 +77,7 @@ ModernRandomizerWindow::ModernRandomizerWindow(SVRandomizerWindow* classicWindow
 }
 
 ModernRandomizerWindow::~ModernRandomizerWindow() {
+    if (editMode) workspace->clear();
     autosave();
     saveOutputSettings();
 }
@@ -145,25 +147,43 @@ QWidget* ModernRandomizerWindow::buildSidebar() {
     layout->setContentsMargins(12, 16, 12, 12);
     layout->setSpacing(2);
 
-    auto* back = new QPushButton("← Spielauswahl", sidebar);
-    back->setObjectName("backButton");
-    back->setCursor(Qt::PointingHandCursor);
-    connect(back, &QPushButton::clicked, this, &ModernRandomizerWindow::backRequested);
-    layout->addWidget(back, 0, Qt::AlignLeft);
+    backButton = new QPushButton("← Spielauswahl", sidebar);
+    backButton->setObjectName("backButton");
+    backButton->setCursor(Qt::PointingHandCursor);
+    connect(backButton, &QPushButton::clicked, this, [this]() {
+        if (editMode) {
+            leaveEditMode(true);
+        } else {
+            emit backRequested();
+        }
+    });
+    layout->addWidget(backButton, 0, Qt::AlignLeft);
     layout->addSpacing(6);
 
     auto* title = new QLabel("Purpur Randomizer", sidebar);
     title->setObjectName("appTitle");
-    auto* subtitle = new QLabel("Karmesin und Purpur", sidebar);
-    subtitle->setObjectName("appSubtitle");
+    sidebarSubtitle = new QLabel("Karmesin und Purpur", sidebar);
+    sidebarSubtitle->setObjectName("appSubtitle");
+    sidebarSubtitle->setWordWrap(true);
     layout->addWidget(title);
-    layout->addWidget(subtitle);
+    layout->addWidget(sidebarSubtitle);
 
     nav = new QListWidget(sidebar);
     nav->addItems(kPages);
     nav->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     nav->setCursor(Qt::PointingHandCursor);
     layout->addWidget(nav, 1);
+
+    // Bearbeiten-Modus: eigene Reiter in derselben Seitenleiste
+    workspace = new modernui::EditWorkspace(this);
+    QListWidget* editNav = workspace->navigation();
+    editNav->setParent(sidebar);
+    editNav->hide();
+    layout->addWidget(editNav, 1);
+    connect(workspace, &modernui::EditWorkspace::edited, this, [this]() {
+        editedByHand = true;
+        updateStatus();
+    });
 
     layout->addWidget(mutedLabel("Bewege die Maus über ein (i), um eine Erklärung zu sehen.", sidebar));
     return sidebar;
@@ -186,11 +206,27 @@ QWidget* ModernRandomizerWindow::buildBottomBar() {
     layout->addLayout(infoColumn);
     layout->addStretch();
 
-    auto* start = new QPushButton("Randomisieren", bar);
-    start->setObjectName("primary");
-    start->setCursor(Qt::PointingHandCursor);
-    connect(start, &QPushButton::clicked, this, &ModernRandomizerWindow::startRandomizer);
-    layout->addWidget(start);
+    openModButton = new QPushButton("Mod öffnen", bar);
+    openModButton->setObjectName("secondary");
+    openModButton->setCursor(Qt::PointingHandCursor);
+    openModButton->setToolTip("Öffnet eine schon exportierte Mod (Ordner mit „romfs“) im Bearbeiten-Modus, "
+                              "damit du sie weiter ändern kannst.");
+    connect(openModButton, &QPushButton::clicked, this, &ModernRandomizerWindow::openMod);
+    layout->addWidget(openModButton);
+
+    editOriginalButton = new QPushButton("Original bearbeiten", bar);
+    editOriginalButton->setObjectName("secondary");
+    editOriginalButton->setCursor(Qt::PointingHandCursor);
+    editOriginalButton->setToolTip("Öffnet die unveränderten Spieldaten im Bearbeiten-Modus, ohne etwas zu randomisieren. "
+                                   "So kannst du wie in pkNX alles von Hand ändern.");
+    connect(editOriginalButton, &QPushButton::clicked, this, &ModernRandomizerWindow::editOriginal);
+    layout->addWidget(editOriginalButton);
+
+    startButton = new QPushButton("Randomisieren", bar);
+    startButton->setObjectName("primary");
+    startButton->setCursor(Qt::PointingHandCursor);
+    connect(startButton, &QPushButton::clicked, this, &ModernRandomizerWindow::startRandomizer);
+    layout->addWidget(startButton);
     return bar;
 }
 
@@ -248,19 +284,6 @@ QWidget* ModernRandomizerWindow::buildStartPage() {
         general->body()->addLayout(row);
         connect(seedEdit, &QLineEdit::textChanged, this, &ModernRandomizerWindow::updateSeedInfo);
     }
-    {
-        auto* row = new QHBoxLayout();
-        row->addWidget(new QLabel("Anzahl Durchläufe", general));
-        row->addWidget(new InfoButton("Erstellt mehrere unterschiedliche Randomizer auf einmal. "
-                                      "Jeder landet in einem eigenen Ordner (Randomizer-1, Randomizer-2, …).", general));
-        row->addStretch();
-        runsSpin = new QSpinBox(general);
-        runsSpin->setRange(1, 50);
-        runsSpin->setFixedWidth(80);
-        runsSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
-        row->addWidget(runsSpin);
-        general->body()->addLayout(row);
-    }
     autoPatch = new QCheckBox("Automatisch patchen", general);
     autoPatch->setChecked(true);
     general->body()->addLayout(rowWithInfo(autoPatch,
@@ -269,7 +292,9 @@ QWidget* ModernRandomizerWindow::buildStartPage() {
     spoilerLog = new QCheckBox("Spoiler-Log erstellen", general);
     spoilerLog->setChecked(true);
     general->body()->addLayout(rowWithInfo(spoilerLog,
-        "Erstellt zusätzlich die Datei Spoiler-Log.html mit allen Trainer-Teams und Tera-Raids. Öffnet sich im Browser und ist durchsuchbar."));
+        "Erstellt zusätzlich die Datei Spoiler-Log.html mit allen Änderungen: Trainer-Teams, Starter, Begegnungen, wilde "
+        "Pokémon, Tera-Raids, Items und Pokémon-Daten – auch mit deinen Änderungen von Hand. Öffnet sich im Browser und "
+        "ist durchsuchbar."));
     general->body()->addWidget(mutedLabel("Bleibt der Seed leer, wird ein zufälliger ausgewürfelt und nach dem Randomisieren "
                                           "angezeigt (auch in der Info.txt) – so kannst du ein Ergebnis später nachbauen.",
                                           general));
@@ -278,7 +303,7 @@ QWidget* ModernRandomizerWindow::buildStartPage() {
     // Vorlagen
     auto* presets = new Card("Vorlagen", QString(), content);
     presets->header()->addWidget(new InfoButton(
-        "Speichert alle Einstellungen (alle Seiten, Seed, Durchläufe und Spoiler-Log) in einer Datei. Vorlagen liegen in "
+        "Speichert alle Einstellungen (alle Seiten, Seed und Spoiler-Log) in einer Datei. Vorlagen liegen in "
         "Randomizers-Output → Karmesin-Purpur → Vorlagen. Der Mod-Ordner wird nicht mitgespeichert.", presets));
     presets->body()->addWidget(mutedLabel("Speichere deine Einstellungen als Datei, um sie später wieder zu laden oder zu teilen. "
                                           "Die zuletzt verwendeten Einstellungen werden außerdem automatisch gemerkt.", presets));
@@ -302,12 +327,12 @@ QWidget* ModernRandomizerWindow::buildStartPage() {
     // Ausgabe
     auto* output = new Card("Ausgabe", QString(), content);
     output->body()->addWidget(mutedLabel(
-        "Die Ergebnisse landen im Ordner Randomizers-Output → Karmesin-Purpur → Randomizer-1 (bei mehreren Durchläufen "
-        "auch Randomizer-2, -3 …). In den Mod-Ordner deines Spiels kopierst du den Ordner „romfs“ – oder lässt ihn unten "
-        "direkt dorthin schreiben.", output));
+        "Nach dem Randomisieren kannst du das Ergebnis ansehen und von Hand ändern. Beim Exportieren landet die Mod im "
+        "Ordner Randomizers-Output → Karmesin-Purpur → Randomizer-1. In den Mod-Ordner deines Spiels kopierst du den "
+        "Ordner „romfs“ – oder lässt ihn unten direkt dorthin schreiben.", output));
     modDirect = new QCheckBox("Direkt in den Mod-Ordner des Emulators schreiben", output);
     output->body()->addLayout(rowWithInfo(modDirect,
-        "Nach dem Randomisieren wird der Ordner „romfs“ aus Randomizer-1 zusätzlich direkt in den Mod-Ordner kopiert. "
+        "Beim Exportieren wird der Ordner „romfs“ aus Randomizer-1 zusätzlich direkt in den Mod-Ordner kopiert. "
         "Ein älterer Ordner dort wird dabei ersetzt – du musst also nichts mehr von Hand kopieren.\n\n"
         "„Emulator suchen“ findet Ryujinx und yuzu (sowie Ableger wie suyu, sudachi, citron und Eden) automatisch und "
         "legt den passenden Ordner …/<Title-ID>/Randomizer an – für Karmesin oder Purpur. Für eine echte Switch bleibt es "
@@ -525,7 +550,7 @@ void ModernRandomizerWindow::updateSeedInfo() {
 
 void ModernRandomizerWindow::applyToRandomizer() {
     code.seed = seedEdit->text().trimmed();
-    code.bulk_amount = static_cast<unsigned int>(runsSpin->value());
+    code.bulk_amount = 1; // mehrere Durchlaeufe gibt es nicht mehr (Bearbeiten-Modus)
     code.auto_patch = autoPatch->isChecked();
 
     svTrainers& t = code.svRandomizerTrainers;
@@ -588,103 +613,267 @@ void ModernRandomizerWindow::applyToRandomizer() {
     }
 }
 
+// ------------------------------------------------------- Bearbeiten-Modus
+
+namespace {
+const char* kOutputFolder = "Randomizers-Output/Karmesin-Purpur";
+} // namespace
+
+bool ModernRandomizerWindow::prepareSession(bool randomize, QString* error) {
+    auto fresh = std::make_unique<svedit::EditSession>();
+    QString base;
+    if (randomize) {
+        applyToRandomizer();
+        // Erst beim Export: Dateiliste patchen und Spoiler-Log schreiben (mit den Aenderungen von Hand)
+        code.auto_patch = false;
+        code.svRandomizerTrainers.writeSpoiler = false;
+        QString seedText = seedEdit->text().trimmed();
+        if (seedText.isEmpty()) {
+            // Leerer Seed: zufaelligen Seed auswuerfeln und anzeigen, damit das Ergebnis nachgebaut werden kann
+            seedText = QString::number(QRandomGenerator::global()->bounded(1000000000));
+            code.seed = seedText;
+        }
+        const bool ok = classic->runRandomizerRuns(false, error);
+        code.auto_patch = autoPatch->isChecked();
+        code.svRandomizerTrainers.writeSpoiler = spoilerLog->isChecked();
+        if (!ok) return false;
+        if (classic->lastOutputFolders.isEmpty()) {
+            if (error) *error = "Der Randomizer hat kein Ergebnis erzeugt.";
+            return false;
+        }
+        base = classic->lastOutputFolders.first() + "/romfs";
+        sessionSeed = seedText;
+        fresh->randomized = true;
+    } else {
+        sessionSeed = "– (Original bearbeitet)";
+    }
+    if (!svedit::openSession(*fresh, base, code.svRandomizerTrainers, error)) return false;
+    session = std::move(fresh);
+    return true;
+}
+
+bool ModernRandomizerWindow::openModSession(const QString& modFolder, QString* error) {
+    const QString romfs = QDir(modFolder).exists("romfs") ? modFolder + "/romfs" : modFolder;
+    if (!QDir(romfs).exists("world") && !QDir(romfs).exists("avalon")) {
+        if (error) *error = "In diesem Ordner wurde keine Karmesin/Purpur-Mod gefunden (Ordner „romfs“ mit „world“ "
+                            "oder „avalon“).";
+        return false;
+    }
+    auto fresh = std::make_unique<svedit::EditSession>();
+    fresh->reopened = true;
+    if (!svedit::openSession(*fresh, romfs, code.svRandomizerTrainers, error)) return false;
+
+    // Seed aus der Info.txt der Mod uebernehmen
+    QString seed;
+    QFile info(QDir(romfs).filePath("../Info.txt"));
+    if (info.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        for (const QString& line : QString::fromUtf8(info.readAll()).split('\n')) {
+            if (line.startsWith("Seed:")) {
+                seed = line.mid(5).trimmed();
+                break;
+            }
+        }
+    }
+    seed.remove(" (danach bearbeitet)");
+    seed.remove(" (Mod bearbeitet)");
+    if (seed.isEmpty() || seed.startsWith("–")) {
+        sessionSeed = "– (Mod bearbeitet)";
+    } else {
+        sessionSeed = seed + " (danach bearbeitet)";
+    }
+    session = std::move(fresh);
+    return true;
+}
+
+bool ModernRandomizerWindow::exportTo(const QString& outFolder, QString* error) {
+    if (!session) {
+        if (error) *error = "Es ist nichts zum Exportieren geöffnet.";
+        return false;
+    }
+    const QString spoiler = spoilerLog->isChecked() ? outFolder + "/Spoiler-Log.html" : QString();
+    if (!svedit::exportSession(*session, code, outFolder, autoPatch->isChecked(), spoiler, sessionSeed, error)) return false;
+    writeInfoFile(outFolder, sessionSeed);
+    lastSeed = sessionSeed;
+    return true;
+}
+
 void ModernRandomizerWindow::startRandomizer() {
+    if (editMode) {
+        exportAndFinish();
+        return;
+    }
     if (activeAreas().isEmpty()) {
         QMessageBox::information(this, "Nichts ausgewählt",
                                  "Du hast noch keinen Bereich zum Randomisieren eingeschaltet. "
-                                 "Wähle links einen Bereich aus und schalte ihn oben auf der Seite ein.");
+                                 "Wähle links einen Bereich aus und schalte ihn oben auf der Seite ein – oder nimm "
+                                 "„Original bearbeiten“, um ohne Randomisieren alles von Hand zu ändern.");
         return;
     }
-    applyToRandomizer();
     autosave();
     saveOutputSettings();
-
-    // Leerer Seed: zufaelligen Seed auswuerfeln und anzeigen, damit das Ergebnis nachgebaut werden kann
-    QString seedText = seedEdit->text().trimmed();
-    if (seedText.isEmpty()) {
-        seedText = QString::number(QRandomGenerator::global()->bounded(1000000000));
-        code.seed = seedText;
-    }
-    lastSeed = seedText;
-
     QApplication::setOverrideCursor(Qt::WaitCursor);
     QString error;
-    const bool ok = classic->runRandomizerRuns(false, &error);
+    const bool ok = prepareSession(true, &error);
     QApplication::restoreOverrideCursor();
     if (!ok) {
         QMessageBox::warning(this, "Randomisieren", error);
         return;
     }
-    const QStringList folders = classic->lastOutputFolders;
-    if (folders.isEmpty()) return;
-    writeInfoFiles(folders, seedText);
-    const QString first = folders.first();
+    enterEditMode();
+}
+
+void ModernRandomizerWindow::editOriginal() {
+    if (editMode) return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = prepareSession(false, &error);
+    QApplication::restoreOverrideCursor();
+    if (!ok) {
+        QMessageBox::warning(this, "Original bearbeiten", error);
+        return;
+    }
+    enterEditMode();
+}
+
+void ModernRandomizerWindow::openMod() {
+    if (editMode) return;
+    const QString start = QDir::current().filePath(kOutputFolder);
+    const QString folder = QFileDialog::getExistingDirectory(
+        this, "Mod-Ordner wählen (enthält „romfs“)", QDir(start).exists() ? start : QDir::currentPath());
+    if (folder.isEmpty()) return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = openModSession(folder, &error);
+    QApplication::restoreOverrideCursor();
+    if (!ok) {
+        QMessageBox::warning(this, "Mod öffnen", error);
+        return;
+    }
+    enterEditMode();
+}
+
+void ModernRandomizerWindow::enterEditMode() {
+    if (!session) return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    editedByHand = false;
+    workspace->setSections(svedit::buildSections(*session), svedit::buildCatalog(*session));
+    QApplication::restoreOverrideCursor();
+    editMode = true;
+    nav->hide();
+    workspace->navigation()->show();
+    sidebarSubtitle->setText(session->randomized ? "Ergebnis ansehen und bearbeiten"
+                                                 : (session->reopened ? "Mod bearbeiten" : "Original bearbeiten"));
+    backButton->setText("← Einstellungen");
+    pages->setCurrentWidget(workspace);
+    startButton->setText("Exportieren");
+    startButton->setToolTip("Schreibt die Mod (romfs) und das Spoiler-Log mit allen Änderungen.");
+    editOriginalButton->hide();
+    openModButton->hide();
+    updateStatus();
+}
+
+bool ModernRandomizerWindow::leaveEditMode(bool ask) {
+    if (!editMode) return true;
+    if (ask && editedByHand) {
+        const auto answer = QMessageBox::question(
+            this, "Bearbeiten beenden",
+            "Deine Änderungen wurden noch nicht exportiert und gehen verloren. Trotzdem zurück zu den Einstellungen?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) return false;
+    }
+    editMode = false;
+    workspace->clear();
+    session.reset();
+    workspace->navigation()->hide();
+    nav->show();
+    sidebarSubtitle->setText("Karmesin und Purpur");
+    backButton->setText("← Spielauswahl");
+    pages->setCurrentIndex(nav->currentRow() < 0 ? 0 : nav->currentRow());
+    startButton->setText("Randomisieren");
+    startButton->setToolTip(QString());
+    editOriginalButton->show();
+    openModButton->show();
+    updateStatus();
+    return true;
+}
+
+void ModernRandomizerWindow::exportAndFinish() {
+    const QString output = QDir::current().filePath(QString(kOutputFolder) + "/Randomizer-1");
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = exportTo(output, &error);
+    QApplication::restoreOverrideCursor();
+    if (!ok) {
+        QMessageBox::warning(this, "Exportieren", error);
+        return;
+    }
+    editedByHand = false; // alles ist geschrieben
+    updateStatus();
 
     bool copied = false;
     QString copyError;
     if (modDirect->isChecked()) {
         QApplication::setOverrideCursor(Qt::WaitCursor);
-        copied = modoutput::copyToModFolder(first, modFolderEdit->text(), {}, false, &copyError);
+        copied = modoutput::copyToModFolder(output, modFolderEdit->text(), {}, false, &copyError);
         QApplication::restoreOverrideCursor();
     }
 
     QMessageBox box(this);
     box.setWindowTitle("Fertig");
     box.setIcon(copyError.isEmpty() ? QMessageBox::Information : QMessageBox::Warning);
-    box.setText(folders.size() > 1
-                    ? QString("Der Randomizer ist fertig: %1 Durchläufe (Seed %2).").arg(folders.size()).arg(seedText)
-                    : "Der Randomizer ist fertig (Seed " + seedText + ").");
+    box.setText(session && session->randomized ? "Die Mod ist fertig (Seed " + sessionSeed + ")."
+                                               : QString("Die Mod mit deinen Änderungen ist fertig."));
+    const QString stay = "\n\nDu bleibst im Bearbeiten-Modus und kannst weiter ändern und erneut exportieren.";
     if (copied) {
-        box.setInformativeText("Der Ordner „romfs“ aus Randomizer-1 wurde direkt in deinen Mod-Ordner geschrieben:\n" +
+        box.setInformativeText("Der Ordner „romfs“ wurde direkt in deinen Mod-Ordner geschrieben:\n" +
                                QDir::toNativeSeparators(modFolderEdit->text().trimmed()) +
-                               "\n\nStarte das Spiel im Emulator (neu) – der Mod ist sofort aktiv. Alle Ergebnisse liegen "
-                               "außerdem in Randomizers-Output → Karmesin-Purpur.");
+                               "\n\nStarte das Spiel im Emulator (neu) – die Mod ist sofort aktiv. Eine Kopie liegt "
+                               "außerdem in Randomizer-1." + stay);
     } else if (!copyError.isEmpty()) {
-        box.setInformativeText(copyError + "\n\nDie Dateien liegen trotzdem in Randomizers-Output → Karmesin-Purpur und "
-                               "können von Hand kopiert werden.");
+        box.setInformativeText(copyError + "\n\nDie Dateien liegen trotzdem in Randomizer-1 und können von Hand "
+                               "kopiert werden.");
     } else {
         box.setInformativeText(
             "Kopiere den Ordner „romfs“ aus Randomizer-1 in einen Mod-Ordner deines Spiels:\n\n"
             "• Ryujinx: Rechtsklick auf das Spiel → „Mod-Verzeichnis öffnen“, dort einen Ordner (z. B. Randomizer) anlegen "
             "und „romfs“ hineinkopieren.\n"
             "• Switch (Atmosphère): atmosphere/contents/" + kScarletId + "/romfs (Karmesin) bzw. atmosphere/contents/" +
-            kVioletId + "/romfs (Purpur).");
+            kVioletId + "/romfs (Purpur)." + stay);
     }
-    const QString spoilerPath = first + "/Spoiler-Log.html";
-    QPushButton* openMod = copied ? box.addButton("Mod-Ordner öffnen", QMessageBox::ActionRole) : nullptr;
+    const QString spoilerPath = output + "/Spoiler-Log.html";
+    QPushButton* openModFolder = copied ? box.addButton("Mod-Ordner öffnen", QMessageBox::ActionRole) : nullptr;
     QPushButton* openFolder = box.addButton("Ordner öffnen", QMessageBox::ActionRole);
     QPushButton* openSpoiler = QFileInfo::exists(spoilerPath) ? box.addButton("Spoiler-Log öffnen", QMessageBox::ActionRole)
                                                               : nullptr;
     box.addButton(QMessageBox::Close);
     box.exec();
-    if (openMod != nullptr && box.clickedButton() == openMod) {
+    if (openModFolder != nullptr && box.clickedButton() == openModFolder) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(QDir::fromNativeSeparators(modFolderEdit->text().trimmed())));
     } else if (box.clickedButton() == openFolder) {
-        QDesktopServices::openUrl(QUrl::fromLocalFile(folders.size() > 1 ? modoutput::gameFolder(modoutput::kScarletViolet)
-                                                                         : first));
+        QDesktopServices::openUrl(QUrl::fromLocalFile(output));
     } else if (openSpoiler != nullptr && box.clickedButton() == openSpoiler) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(spoilerPath));
     }
 }
 
-void ModernRandomizerWindow::writeInfoFiles(const QStringList& folders, const QString& seedText) const {
-    const QString settings = QString::fromUtf8(QJsonDocument(settingsToJson()).toJson(QJsonDocument::Indented));
-    const QString created = QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm");
-    for (int i = 0; i < folders.size(); i++) {
-        QFile info(folders[i] + "/Info.txt");
-        if (!info.open(QIODevice::WriteOnly | QIODevice::Text)) continue;
-        QTextStream out(&info);
-        out << "Pokémon Karmesin/Purpur Randomizer\n";
-        out << "Erstellt: " << created << "\n";
-        out << "Seed: " << seedText << "\n";
-        if (folders.size() > 1) {
-            out << "Durchlauf: " << (i + 1) << " von " << folders.size()
-                << " (zum Nachbauen denselben Seed mit derselben Anzahl an Durchläufen verwenden)\n";
-        }
-        out << "Aktive Bereiche: " << activeAreas().join(", ") << "\n";
-        out << "\nEinstellungen:\n" << settings;
+void ModernRandomizerWindow::writeInfoFile(const QString& folder, const QString& seedText) const {
+    QFile info(folder + "/Info.txt");
+    if (!info.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+    QTextStream out(&info);
+    out << "Pokémon Karmesin/Purpur Randomizer\n";
+    out << "Erstellt: " << QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm") << "\n";
+    out << "Seed: " << seedText << "\n";
+    if (session) {
+        if (session->randomized) out << "Aktive Bereiche: " << activeAreas().join(", ") << "\n";
+        const int trainers = svedit::changedTrainerCount(*session);
+        if (trainers > 0) out << "Geänderte Trainer: " << trainers << "\n";
+        if (svedit::sessionHasChanges(*session)) out << "Von Hand bearbeitet: ja\n";
+    }
+    if (session && session->randomized) {
+        out << "\nEinstellungen:\n" << QString::fromUtf8(QJsonDocument(settingsToJson()).toJson(QJsonDocument::Indented));
     }
 }
+
 
 void ModernRandomizerWindow::findEmulator() {
     const QString path = modoutput::askEmulatorModFolder(this, {{"Karmesin", kScarletId}, {"Purpur", kVioletId}});
@@ -714,7 +903,6 @@ void ModernRandomizerWindow::loadOutputSettings() {
 QJsonObject ModernRandomizerWindow::settingsToJson() const {
     QJsonObject general;
     general["seed"] = seedEdit->text();
-    general["runs"] = runsSpin->value();
     general["autoPatch"] = autoPatch->isChecked();
     general["spoilerLog"] = spoilerLog->isChecked();
 
@@ -762,9 +950,9 @@ QJsonObject ModernRandomizerWindow::settingsToJson() const {
 void ModernRandomizerWindow::settingsFromJson(const QJsonObject& o) {
     QJsonObject general = o["general"].toObject();
     {
-        QSignalBlocker b1(seedEdit), b2(runsSpin), b3(autoPatch), b4(spoilerLog);
+        // "runs" aus aelteren Vorlagen wird ignoriert
+        QSignalBlocker b1(seedEdit), b3(autoPatch), b4(spoilerLog);
         seedEdit->setText(general["seed"].toString());
-        runsSpin->setValue(general["runs"].toInt(1));
         autoPatch->setChecked(general["autoPatch"].toBool(true));
         spoilerLog->setChecked(general["spoilerLog"].toBool(true));
     }

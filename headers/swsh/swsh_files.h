@@ -53,6 +53,8 @@ const QString Placement = "bin/archive/field/resident/placement.gfpak";
 }
 
 QByteArray readFile(const QString& path, bool* ok = nullptr);
+// Mod wieder oeffnen: readFile liest Dateien unter dumpRomfs bevorzugt aus modRomfs (leer = aus)
+void setReadOverlay(const QString& dumpRomfs, const QString& modRomfs);
 
 // Spieltexte (bin/message/<Sprache>/common/<name>.dat). Deutsch, sonst Englisch, sonst leer.
 // Index = Zeile, z. B. monsname -> Nationaldex, wazaname -> Attacken-ID, trname -> Trainer-Index.

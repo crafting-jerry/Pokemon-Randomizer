@@ -54,6 +54,9 @@ const QString MessageEnglish = Assets + "Message/english";
 }
 
 QByteArray readFile(const QString& path, bool* ok = nullptr);
+// Dateien unter dumpRomfs werden aus modRomfs gelesen, wenn es sie dort gibt (Mod wieder oeffnen).
+// Leere Pfade schalten das wieder aus.
+void setReadOverlay(const QString& dumpRomfs, const QString& modRomfs);
 bool writeFile(const QString& path, const QByteArray& data);
 
 // Ein geladenes Bundle mit seinen Tabellen (Objekt-Index -> Baum)

@@ -43,6 +43,7 @@ public:
     bool randomizeTo(const QString& outputFolder, QString* error);
     // Bearbeiten-Modus: randomisieren (oder Original laden), dann bearbeiten und exportieren
     bool prepareSession(bool randomize, QString* error);
+    bool openModSession(const QString& modFolder, QString* error);
     bool exportTo(const QString& outputFolder, QString* error);
     swsh::EditSession* currentSession() { return session.get(); }
     swsh::TrainerSettings& trainerSettingsRef() { return trainerSettings; }
@@ -181,8 +182,10 @@ private:
     bool editedByHand = false;
     QPushButton* backButton = nullptr;
     QPushButton* editOriginalButton = nullptr;
+    QPushButton* openModButton = nullptr;
     QLabel* sidebarSubtitle = nullptr;
     void editOriginal();
+    void openMod();
     void enterEditMode();
     bool leaveEditMode(bool ask);
     void exportAndFinish();

@@ -14,7 +14,24 @@ namespace bdsp {
 
 // ------------------------------------------------------------- Dateien
 
-QByteArray readFile(const QString& path, bool* ok) {
+namespace {
+QString overlayBase, overlayMod;   // geoeffnete Mod ueber dem Dump (leer = aus)
+}
+
+void setReadOverlay(const QString& dumpRomfs, const QString& modRomfs) {
+    overlayBase = QDir::cleanPath(dumpRomfs);
+    overlayMod = QDir::cleanPath(modRomfs);
+}
+
+QByteArray readFile(const QString& pathIn, bool* ok) {
+    QString path = pathIn;
+    if (!overlayBase.isEmpty() && !overlayMod.isEmpty()) {
+        const QString clean = QDir::cleanPath(pathIn);
+        if (clean.startsWith(overlayBase + "/")) {
+            const QString candidate = overlayMod + clean.mid(overlayBase.size());
+            if (QFileInfo::exists(candidate)) path = candidate;
+        }
+    }
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         if (ok) *ok = false;

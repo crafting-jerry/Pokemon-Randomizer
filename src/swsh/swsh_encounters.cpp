@@ -119,7 +119,7 @@ QSet<qint64> threeStageBases(const GameFiles& files) {
 }
 
 // Setzt die Arten der drei Starter-Modelle in a_0101.bin (Feld wird direkt ueberschrieben)
-bool patchStarterModels(QByteArray& data, const int critters[3], int s0, int s1, int s2) {
+bool patchStarterModels(QByteArray& data, const int critters[3], int s0, int s1, int s2, bool anyModel = false) {
     auto u32 = [&](int pos) -> qint64 {
         if (pos < 0 || pos + 4 > data.size()) return -1;
         return qFromLittleEndian<quint32>(reinterpret_cast<const uchar*>(data.constData() + pos));
@@ -158,7 +158,7 @@ bool patchStarterModels(QByteArray& data, const int critters[3], int s0, int s1,
         if (pos < 0) return false;
         // Nur die drei Starter-Modelle (Chimpep, Hopplo, Memmeon) ueberschreiben
         const qint64 current = u32(pos);
-        if (current != 810 && current != 813 && current != 816) return false;
+        if (!anyModel && current != 810 && current != 813 && current != 816) return false;
         qToLittleEndian<quint32>(static_cast<quint32>(species[i]), reinterpret_cast<uchar*>(data.data() + pos));
     }
     return true;
@@ -173,12 +173,12 @@ int genderFor(int species, int form) {
 
 const int kStarterGiftIndexes[3] = {0, 3, 4};
 
-QByteArray applyStarterModels(const QByteArray& placement, int s0, int s1, int s2) {
+QByteArray applyStarterModels(const QByteArray& placement, int s0, int s1, int s2, bool anyModel) {
     GfPak pack;
     if (!pack.load(placement)) return QByteArray();
     const int fileIndex = pack.indexOf("a_0101.bin");
     QByteArray zone = pack.file(fileIndex);
-    if (zone.isEmpty() || !patchStarterModels(zone, kStarterCritters, s0, s1, s2)) return QByteArray();
+    if (zone.isEmpty() || !patchStarterModels(zone, kStarterCritters, s0, s1, s2, anyModel)) return QByteArray();
     pack.setFile(fileIndex, zone);
     return pack.save();
 }

@@ -45,6 +45,7 @@ const char* kEditStyle = R"(
 QComboBox[edited="true"], QSpinBox[edited="true"] { border-color: #f2c46d; }
 QCheckBox[edited="true"] { color: #f2c46d; }
 #textValue { color: #e6e8ee; padding: 4px 0; }
+#editWarning { background: #3a2f17; border: 1px solid #f2c46d; border-radius: 8px; color: #f6d896; padding: 8px 10px; }
 )";
 
 const QColor kChangedColor(0xf2, 0xc4, 0x6d);
@@ -259,6 +260,7 @@ QWidget* EditSectionPage::fieldWidget(const edit::Field& field, QWidget* parent)
         markItem(currentEntry);
         emit edited();
         if (field.rebuild) scheduleRebuild();
+        else refreshWarnings();
     };
 
     switch (field.kind) {
@@ -298,6 +300,10 @@ QWidget* EditSectionPage::fieldWidget(const edit::Field& field, QWidget* parent)
     case edit::Kind::Choice: {
         auto* combo = new QComboBox(parent);
         combo->addItems(field.choices);
+        // Lange Eintraege (z. B. Faehigkeiten) sollen das Raster nicht verbreitern; die Liste zeigt sie ganz
+        combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        combo->setMinimumContentsLength(8);
+        combo->view()->setMinimumWidth(combo->view()->sizeHintForColumn(0) + 24);
         const int value = field.get ? field.get() : 0;
         if (value >= 0 && value < field.choices.size()) {
             combo->setCurrentIndex(value);
@@ -403,6 +409,12 @@ void EditSectionPage::showEntry(int index) {
     layout->addWidget(title);
     if (!entry.group.isEmpty()) layout->addWidget(mutedLabel(entry.group, page));
     if (!content.hint.isEmpty()) layout->addWidget(mutedLabel(content.hint, page));
+    warningLabel = new QLabel(page);
+    warningLabel->setObjectName("editWarning");
+    warningLabel->setWordWrap(true);
+    layout->addWidget(warningLabel);
+    currentWarnings = content.warnings;
+    refreshWarnings();
 
     if (!content.fields.isEmpty()) {
         auto* card = new QFrame(page);
@@ -510,6 +522,13 @@ void EditSectionPage::showEntry(int index) {
     detailScroll->setWidget(page);
     if (old) old->deleteLater();
     detail = page;
+}
+
+void EditSectionPage::refreshWarnings() {
+    if (!warningLabel) return;
+    const QStringList list = currentWarnings ? currentWarnings() : QStringList();
+    warningLabel->setText(list.isEmpty() ? QString() : "⚠ " + list.join("\n⚠ "));
+    warningLabel->setVisible(!list.isEmpty());
 }
 
 // -------------------------------------------------------------- EditWorkspace

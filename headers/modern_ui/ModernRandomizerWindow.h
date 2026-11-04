@@ -23,9 +23,13 @@
 #include <memory>
 #include <vector>
 
+#include <QPushButton>
+
 #include "modern_widgets.h"
+#include "edit_pages.h"
 #include "trainer_settings_editor.h"
 #include "../sv_randomizer_headers/SVRandomizerWindow.h"
+#include "../sv_randomizer_headers/sv_session.h"
 
 class ModernRandomizerWindow : public QWidget {
     Q_OBJECT
@@ -67,7 +71,6 @@ private:
 
     // Start-Seite
     QLineEdit* seedEdit = nullptr;
-    QSpinBox* runsSpin = nullptr;
     QCheckBox* autoPatch = nullptr;
     QCheckBox* spoilerLog = nullptr;
 
@@ -79,7 +82,24 @@ private:
     void findEmulator();
     void saveOutputSettings() const;
     void loadOutputSettings();
-    void writeInfoFiles(const QStringList& folders, const QString& seedText) const;
+    void writeInfoFile(const QString& folder, const QString& seedText) const;
+
+    // Bearbeiten-Modus (Ergebnis ansehen und aendern, Original bearbeiten, Mod oeffnen)
+    modernui::EditWorkspace* workspace = nullptr;
+    std::unique_ptr<svedit::EditSession> session;
+    QString sessionSeed;
+    bool editMode = false;
+    bool editedByHand = false;
+    QPushButton* backButton = nullptr;
+    QPushButton* startButton = nullptr;
+    QPushButton* editOriginalButton = nullptr;
+    QPushButton* openModButton = nullptr;
+    QLabel* sidebarSubtitle = nullptr;
+    void editOriginal();
+    void openMod();
+    void enterEditMode();
+    bool leaveEditMode(bool ask);
+    void exportAndFinish();
 
     // Trainer-Seite
     bool trainersEnabled = false;
@@ -163,6 +183,13 @@ private:
 public:
     // Uebertraegt alle Einstellungen in den Randomizer (auch fuer Tests)
     void applyToRandomizer();
+    // Randomisiert (randomize = true) bzw. oeffnet das Original und legt die Bearbeiten-Sitzung an
+    bool prepareSession(bool randomize, QString* error);
+    // Oeffnet eine schon exportierte Mod (Ordner mit "romfs") als Sitzung
+    bool openModSession(const QString& modFolder, QString* error);
+    // Schreibt Mod, Spoiler-Log und Info.txt nach outFolder
+    bool exportTo(const QString& outFolder, QString* error);
+    svedit::EditSession* currentSession() { return session.get(); }
 private:
     void startRandomizer();
 

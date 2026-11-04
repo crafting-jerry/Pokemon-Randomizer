@@ -25,7 +25,8 @@
 namespace swsh {
 
 struct EditSession {
-    bool randomized = false;      // false = "Original bearbeiten"
+    bool randomized = false;      // false = "Original bearbeiten" oder geoeffnete Mod
+    bool reopened = false;        // schon exportierte Mod wieder geoeffnet
     QString romfs;
     Version version = Version::Unknown;
     GameTexts texts;
@@ -75,6 +76,10 @@ struct EditSession {
 // placementBase und die Ergebnisse vorher gesetzt sein; gifts/statics/trades werden aus
 // den Randomizer-Dateien gelesen, sofern vorhanden.
 bool openSession(EditSession& session, const EncounterResult* encounters, QString* error);
+
+// Schon exportierte Mod (Ordner mit romfs) als Arbeitsstand laden und die Sitzung oeffnen.
+// Vorher setzen: romfs (Dump), version, original und work (= Dump).
+bool loadModInto(EditSession& session, const QString& modFolder, QString* error);
 
 // Bereiche fuer den Bearbeiten-Modus
 QList<edit::Section> buildSections(EditSession& session);

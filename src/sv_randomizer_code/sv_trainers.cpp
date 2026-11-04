@@ -409,7 +409,7 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                             genderStd = "FEMALE";
                         }
                     }else{
-                        int rand_gender = randNum.bounded(0, 100);
+                        int rand_gender = randGen.bounded(0, 100); // eigener Generator je Trainer (parallel, sonst nicht reproduzierbar)
                         if(rand_gender > int(pokemonPersonalData["entry"][int(localMapping["pokemons"][pokemon]["devid"])]["gender"]["ratio"])){
                             genderStd = "MALE";
                         }else{

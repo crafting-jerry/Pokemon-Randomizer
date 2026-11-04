@@ -130,6 +130,27 @@ bool ExeFsPatcher::patchEevee(int species, QString* error) {
     return true;
 }
 
+int ExeFsPatcher::readEevee(const QByteArray& ips) const {
+    const QList<int> e = find({{movz(8, 133), F}, {kStrW8X20_38, F}, {movz(8, 5), F}});
+    if (e.size() != 1 || !ips.startsWith("IPS32")) return -1;
+    const quint32 target = static_cast<quint32>(e[0]) * 4 + kNsoHeaderSize;
+    const uchar* d = reinterpret_cast<const uchar*>(ips.constData());
+    int pos = 5;
+    while (pos + 6 <= ips.size()) {
+        if (ips.mid(pos, 4) == "EEOF") break;
+        const quint32 address = qFromBigEndian<quint32>(d + pos);
+        const quint16 size = qFromBigEndian<quint16>(d + pos + 4);
+        pos += 6;
+        if (pos + size > ips.size()) break;
+        if (address == target && size == 4) {
+            const quint32 word = qFromLittleEndian<quint32>(d + pos);
+            return static_cast<int>((word >> 5) & 0xFFFF);
+        }
+        pos += size;
+    }
+    return -1;
+}
+
 QByteArray ExeFsPatcher::ips() const {
     QByteArray out("IPS32");
     for (const Patch& p : patches) {

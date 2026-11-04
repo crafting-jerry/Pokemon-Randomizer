@@ -15,6 +15,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+#include <QSet>
 
 #include "bdsp_files.h"
 #include "../swsh/swsh_trainers.h"
@@ -78,7 +79,8 @@ struct SpoilerSection {
 
 bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& texts,
                   const TrainerSettings& settings, const QList<SpoilerSection>& extra,
-                  const QString& seedText, Version version);
+                  const QString& seedText, Version version, const QSet<int>& editedTrainers = QSet<int>(),
+                  const QString& editedNote = QString("von Hand bearbeitet"));
 
 } // namespace bdsp
 

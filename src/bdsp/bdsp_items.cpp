@@ -116,6 +116,8 @@ QList<Spot> findSpots(ScriptData& scripts, const ItemInfo& info, bool field, boo
     return spots;
 }
 
+} // namespace
+
 QString fixedShopName(int id) {
     switch (id) {
     case 0: return "Honig-Verkäufer";
@@ -127,8 +129,6 @@ QString fixedShopName(int id) {
     default: return QString("Sonderladen %1").arg(id);
     }
 }
-
-} // namespace
 
 QJsonObject itemSettingsToJson(const ItemSettings& s) {
     QJsonObject j;

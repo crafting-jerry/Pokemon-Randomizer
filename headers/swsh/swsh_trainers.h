@@ -107,7 +107,8 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
 // HTML-Spoiler-Log (editedTrainers: von Hand geaenderte Trainer, erscheinen immer): zuerst die zusaetzlichen Abschnitte (Starter, Geschenke ...), dann alle Trainer-Teams
 bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& texts,
                   const TrainerSettings& settings, const QList<SpoilerSection>& extra,
-                  const QString& seedText, Version version, const QSet<int>& editedTrainers = QSet<int>());
+                  const QString& seedText, Version version, const QSet<int>& editedTrainers = QSet<int>(),
+                  const QString& editedNote = QString("von Hand bearbeitet"));
 
 } // namespace swsh
 

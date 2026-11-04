@@ -15,6 +15,7 @@
 #include <QList>
 #include <QPointer>
 #include <QWidget>
+#include <functional>
 
 #include "../common/edit_model.h"
 
@@ -72,6 +73,9 @@ private:
     QScrollArea* detailScroll = nullptr;
     QPointer<QWidget> detail;
     int currentEntry = -1;
+    QPointer<QLabel> warningLabel;
+    std::function<QStringList()> currentWarnings;
+    void refreshWarnings();
     QList<QTreeWidgetItem*> entryItems;
 
     void buildList();

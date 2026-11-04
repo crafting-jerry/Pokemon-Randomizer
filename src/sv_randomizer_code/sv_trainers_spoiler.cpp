@@ -44,6 +44,89 @@ const QStringList kCategoryOrder = {
 
 } // namespace
 
+QHash<int, QPair<QString, QString>> svTrainers::spoilerLabels(const json& values) const {
+    QList<LabelRule> rules = {
+        // Arenen
+        {bugGym, "Arenen", "Arenatrainer (Käfer)", "Ronah · Arenaleiter (Käfer)"},
+        {grassGym, "Arenen", "Arenatrainer (Pflanze)", "Colzo · Arenaleiter (Pflanze)"},
+        {electricGym, "Arenen", "Arenatrainer (Elektro)", "Enigmara · Arenaleiterin (Elektro)"},
+        {waterGym, "Arenen", "Arenatrainer (Wasser)", "Kombu · Arenaleiter (Wasser)"},
+        {normalGym, "Arenen", "Arenatrainer (Normal)", "Aoki · Arenaleiter (Normal)"},
+        {ghostGym, "Arenen", "Arenatrainer (Geist)", "Etta · Arenaleiterin (Geist)"},
+        {psychicGym, "Arenen", "Arenatrainer (Psycho)", "Tulia · Arenaleiterin (Psycho)"},
+        {iceGym, "Arenen", "Arenatrainer (Eis)", "Grusha · Arenaleiter (Eis)"},
+        // Top Vier
+        {e4Ground, "Top Vier & Champ", "Cay · Top Vier (Boden)", ""},
+        {e4Steel, "Top Vier & Champ", "Poppy · Top Vier (Stahl)", ""},
+        {e4Flying, "Top Vier & Champ", "Aoki · Top Vier (Flug)", ""},
+        {e4Dragon, "Top Vier & Champ", "Sinius · Top Vier (Drache)", ""},
+        {geeta, "Top Vier & Champ", "Sagaria · Top-Champ", ""},
+        // Rivalen
+        {nemona_fire, "Rivalen & Freunde", "Nemila (Variante Feuer-Starter)", ""},
+        {nemona_grass, "Rivalen & Freunde", "Nemila (Variante Pflanzen-Starter)", ""},
+        {nemona_water, "Rivalen & Freunde", "Nemila (Variante Wasser-Starter)", ""},
+        {arven, "Rivalen & Freunde", "Pepper", ""},
+        {penny, "Rivalen & Freunde", "Cosima", ""},
+        {clavell_fire, "Rivalen & Freunde", "Clavel (Variante Feuer)", ""},
+        {clavell_grass, "Rivalen & Freunde", "Clavel (Variante Pflanze)", ""},
+        {clavell_water, "Rivalen & Freunde", "Clavel (Variante Wasser)", ""},
+        {professors, "Rivalen & Freunde", "Professor", ""},
+        // Team Star
+        {starDark, "Team Star", "Rüpel der Segin-Bande (Unlicht)", "Pinio · Boss der Segin-Bande (Unlicht)"},
+        {starFire, "Team Star", "Rüpel der Schedir-Bande (Feuer)", "Irsa · Boss der Schedir-Bande (Feuer)"},
+        {starPoison, "Team Star", "Rüpel der Tsih-Bande (Gift)", "Shugi · Boss der Tsih-Bande (Gift)"},
+        {starFairy, "Team Star", "Rüpel der Rukbat-Bande (Fee)", "Otis · Boss der Rukbat-Bande (Fee)"},
+        {starFight, "Team Star", "Rüpel der Caph-Bande (Kampf)", "Boss der Caph-Bande (Kampf)"},
+        // Akademie
+        {raifort, "Akademie", "Lehrkraft", ""},
+        {saguaro, "Akademie", "Lehrkraft", ""},
+        {salvatore, "Akademie", "Lehrkraft", ""},
+        {ryme, "Akademie", "Lehrkraft", ""},
+        {zinia, "Akademie", "Lehrkraft", ""},
+        {dendra, "Akademie", "Lehrkraft", ""},
+        {miriam, "Akademie", "Lehrkraft", ""},
+        // DLC 1
+        {kieran_dlc1, "Kitakami (DLC 1)", "Rivale", ""},
+        {kieran_stront_dlc1, "Kitakami (DLC 1)", "Rivale (stark)", ""},
+        {carmine_dlc1, "Kitakami (DLC 1)", "Rivalin", ""},
+        {carmine_strong_dlc1, "Kitakami (DLC 1)", "Rivalin (stark)", ""},
+        {ogreClan, "Kitakami (DLC 1)", "Bande", ""},
+        {ogreClanBoss, "Kitakami (DLC 1)", "Bandenboss", ""},
+        {perrin, "Kitakami (DLC 1)", "Trainerin", ""},
+        {oNareFamily, "Kitakami (DLC 1)", "Trainer", ""},
+        // DLC 2
+        {bb4Dragon, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Top-Vier (Drache)", ""},
+        {bb4DragonTrainers, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Trainer (Drache)", ""},
+        {bb4Farity, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Top-Vier (Fee)", ""},
+        {bb4FairyTrainers, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Trainer (Fee)", ""},
+        {bb4Steel, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Top-Vier (Stahl)", ""},
+        {bb4Fire, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Top-Vier (Feuer)", ""},
+        {bb4FireTrainers, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Trainer (Feuer)", ""},
+        {kieran, "Blaubeer-Akademie (DLC 2)", "Rivale", ""},
+        {carmine, "Blaubeer-Akademie (DLC 2)", "Rivalin", ""},
+        {schoolwars, "Blaubeer-Akademie (DLC 2)", "Schulduell", ""},
+        {epilogue, "Blaubeer-Akademie (DLC 2)", "Epilog", ""},
+        {terapagos, "Blaubeer-Akademie (DLC 2)", "Terapagos-Kampf", ""},
+        {shiano, "Blaubeer-Akademie (DLC 2)", "Trainer", ""}
+    };
+
+    QHash<int, QPair<QString, QString>> labels;
+    for (const LabelRule& rule : rules) {
+        for (int index : rule.indexes) {
+            if (labels.contains(index) || index < 0 || index >= static_cast<int>(values.size())) {
+                continue;
+            }
+            QString trid = QString::fromStdString(values[index].value("trid", std::string()));
+            bool isBoss = trid.contains("leader") || trid.contains("boss");
+            labels[index] = {rule.category, (isBoss && !rule.bossLabel.isEmpty()) ? rule.bossLabel : rule.label};
+        }
+    }
+    return labels;
+
+}
+
+QStringList svTrainers::spoilerCategoryOrder() { return kCategoryOrder; }
+
 void svTrainers::writeSpoilerLog() {
     // --- Deutsche Namen laden ---
     if(!QFile::exists("SV_FLATBUFFERS/german_names.json")){
@@ -112,81 +195,10 @@ void svTrainers::writeSpoilerLog() {
     };
 
     // --- Trainer beschriften ---
-    QList<LabelRule> rules = {
-        // Arenen
-        {bugGym, "Arenen", "Arenatrainer (Käfer)", "Ronah · Arenaleiter (Käfer)"},
-        {grassGym, "Arenen", "Arenatrainer (Pflanze)", "Colzo · Arenaleiter (Pflanze)"},
-        {electricGym, "Arenen", "Arenatrainer (Elektro)", "Enigmara · Arenaleiterin (Elektro)"},
-        {waterGym, "Arenen", "Arenatrainer (Wasser)", "Kombu · Arenaleiter (Wasser)"},
-        {normalGym, "Arenen", "Arenatrainer (Normal)", "Aoki · Arenaleiter (Normal)"},
-        {ghostGym, "Arenen", "Arenatrainer (Geist)", "Etta · Arenaleiterin (Geist)"},
-        {psychicGym, "Arenen", "Arenatrainer (Psycho)", "Tulia · Arenaleiterin (Psycho)"},
-        {iceGym, "Arenen", "Arenatrainer (Eis)", "Grusha · Arenaleiter (Eis)"},
-        // Top Vier
-        {e4Ground, "Top Vier & Champ", "Cay · Top Vier (Boden)", ""},
-        {e4Steel, "Top Vier & Champ", "Poppy · Top Vier (Stahl)", ""},
-        {e4Flying, "Top Vier & Champ", "Aoki · Top Vier (Flug)", ""},
-        {e4Dragon, "Top Vier & Champ", "Sinius · Top Vier (Drache)", ""},
-        {geeta, "Top Vier & Champ", "Sagaria · Top-Champ", ""},
-        // Rivalen
-        {nemona_fire, "Rivalen & Freunde", "Nemila (Variante Feuer-Starter)", ""},
-        {nemona_grass, "Rivalen & Freunde", "Nemila (Variante Pflanzen-Starter)", ""},
-        {nemona_water, "Rivalen & Freunde", "Nemila (Variante Wasser-Starter)", ""},
-        {arven, "Rivalen & Freunde", "Pepper", ""},
-        {penny, "Rivalen & Freunde", "Cosima", ""},
-        {clavell_fire, "Rivalen & Freunde", "Clavel (Variante Feuer)", ""},
-        {clavell_grass, "Rivalen & Freunde", "Clavel (Variante Pflanze)", ""},
-        {clavell_water, "Rivalen & Freunde", "Clavel (Variante Wasser)", ""},
-        {professors, "Rivalen & Freunde", "Professor", ""},
-        // Team Star
-        {starDark, "Team Star", "Rüpel der Segin-Bande (Unlicht)", "Pinio · Boss der Segin-Bande (Unlicht)"},
-        {starFire, "Team Star", "Rüpel der Schedir-Bande (Feuer)", "Irsa · Boss der Schedir-Bande (Feuer)"},
-        {starPoison, "Team Star", "Rüpel der Tsih-Bande (Gift)", "Shugi · Boss der Tsih-Bande (Gift)"},
-        {starFairy, "Team Star", "Rüpel der Rukbat-Bande (Fee)", "Otis · Boss der Rukbat-Bande (Fee)"},
-        {starFight, "Team Star", "Rüpel der Caph-Bande (Kampf)", "Boss der Caph-Bande (Kampf)"},
-        // Akademie
-        {raifort, "Akademie", "Lehrkraft", ""},
-        {saguaro, "Akademie", "Lehrkraft", ""},
-        {salvatore, "Akademie", "Lehrkraft", ""},
-        {ryme, "Akademie", "Lehrkraft", ""},
-        {zinia, "Akademie", "Lehrkraft", ""},
-        {dendra, "Akademie", "Lehrkraft", ""},
-        {miriam, "Akademie", "Lehrkraft", ""},
-        // DLC 1
-        {kieran_dlc1, "Kitakami (DLC 1)", "Rivale", ""},
-        {kieran_stront_dlc1, "Kitakami (DLC 1)", "Rivale (stark)", ""},
-        {carmine_dlc1, "Kitakami (DLC 1)", "Rivalin", ""},
-        {carmine_strong_dlc1, "Kitakami (DLC 1)", "Rivalin (stark)", ""},
-        {ogreClan, "Kitakami (DLC 1)", "Bande", ""},
-        {ogreClanBoss, "Kitakami (DLC 1)", "Bandenboss", ""},
-        {perrin, "Kitakami (DLC 1)", "Trainerin", ""},
-        {oNareFamily, "Kitakami (DLC 1)", "Trainer", ""},
-        // DLC 2
-        {bb4Dragon, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Top-Vier (Drache)", ""},
-        {bb4DragonTrainers, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Trainer (Drache)", ""},
-        {bb4Farity, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Top-Vier (Fee)", ""},
-        {bb4FairyTrainers, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Trainer (Fee)", ""},
-        {bb4Steel, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Top-Vier (Stahl)", ""},
-        {bb4Fire, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Top-Vier (Feuer)", ""},
-        {bb4FireTrainers, "Blaubeer-Akademie (DLC 2)", "Blaubeer-Trainer (Feuer)", ""},
-        {kieran, "Blaubeer-Akademie (DLC 2)", "Rivale", ""},
-        {carmine, "Blaubeer-Akademie (DLC 2)", "Rivalin", ""},
-        {schoolwars, "Blaubeer-Akademie (DLC 2)", "Schulduell", ""},
-        {epilogue, "Blaubeer-Akademie (DLC 2)", "Epilog", ""},
-        {terapagos, "Blaubeer-Akademie (DLC 2)", "Terapagos-Kampf", ""},
-        {shiano, "Blaubeer-Akademie (DLC 2)", "Trainer", ""}
-    };
-
     QHash<int, TrainerLabel> labels;
-    for (const LabelRule& rule : rules) {
-        for (int index : rule.indexes) {
-            if (labels.contains(index) || index < 0 || index >= static_cast<int>(trainersData["values"].size())) {
-                continue;
-            }
-            QString trid = QString::fromStdString(trainersData["values"][index].value("trid", std::string()));
-            bool isBoss = trid.contains("leader") || trid.contains("boss");
-            labels[index] = {rule.category, (isBoss && !rule.bossLabel.isEmpty()) ? rule.bossLabel : rule.label};
-        }
+    {
+        const QHash<int, QPair<QString, QString>> raw = spoilerLabels(trainersData["values"]);
+        for (auto it = raw.constBegin(); it != raw.constEnd(); ++it) labels[it.key()] = {it.value().first, it.value().second};
     }
 
     // --- Trainer-Karten erzeugen ---

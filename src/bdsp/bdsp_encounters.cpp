@@ -51,6 +51,8 @@ void setArgFloat(UValue& arg, float value) {
     arg["data"].i = bits;
 }
 
+} // namespace
+
 // Ortsnamen der statischen Begegnungen (Kartencode -> Ort)
 QString placeForZone(const QString& zone) {
     static const QList<QPair<QString, QString>> places = {
@@ -64,6 +66,8 @@ QString placeForZone(const QString& zone) {
     }
     return zone;
 }
+
+namespace {
 
 class Picker {
 public:

@@ -126,9 +126,13 @@ void TrainerSmartData::build(const GameData& data) {
     }
 
     // --- Mindestlevel fuer jede Form berechnen ---
+    // Feste Reihenfolge: bei Kreisen (randomisierte Entwicklungen) haengt das Ergebnis vom Startpunkt ab,
+    // und QHash ist je nach Programmstart anders sortiert (sonst ergibt derselbe Seed andere Ergebnisse)
     QSet<qint64> visiting;
-    for (auto it = stage.constBegin(); it != stage.constEnd(); ++it) {
-        computeMinLevel(it.key(), visiting);
+    QList<qint64> order = stage.keys();
+    std::sort(order.begin(), order.end());
+    for (qint64 k : order) {
+        computeMinLevel(k, visiting);
     }
 
     ready = true;

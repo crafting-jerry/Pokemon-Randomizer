@@ -33,6 +33,8 @@ public:
     bool patchStarters(int slot0, int slot1, int slot2, QString* error);
     // Evoli-Geschenk ersetzen
     bool patchEevee(int species, QString* error);
+    // Evoli-Art aus einem vorhandenen IPS32-Patch lesen (-1 = nicht gepatcht oder nicht gefunden)
+    int readEevee(const QByteArray& ips) const;
 
     bool hasPatches() const { return !patches.isEmpty(); }
     QByteArray ips() const; // IPS32-Datei

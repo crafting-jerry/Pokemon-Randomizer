@@ -973,7 +973,9 @@ inline void sharedRandomizerClass::createFolderHierarchy(const QString& folder) 
  * This function returns the item the pokemon must hold - it also checks based on form
  */
 inline std::string sharedRandomizerClass::getPokemonItemId(int index, int form){
-    if (paradox[index].contains(form) && index != 1007 && index != 1008 && index != 1024) {
+    // value() statt [] : [] fuegt fehlende Eintraege ein (Absturz bei parallelen Trainern,
+    // ausserdem lieferte getPokemonItemValue danach fuer jedes Pokemon 25)
+    if (paradox.value(index).contains(form) && index != 1007 && index != 1008 && index != 1024) {
         return "ITEMID_BUUSUTOENAJII";
     }
 

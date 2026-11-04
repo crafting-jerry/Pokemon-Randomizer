@@ -134,6 +134,34 @@ QList<Area> fieldAreas(UValue& table, const QHash<int, QString>& zoneNames) {
     return areas;
 }
 
+// Untergrund: Hoehlen-Tabellen und seltene Pokemon. tables = Tabellen, die dabei vorkommen
+QList<Area> undergroundAreas(BundleData& ug, QStringList* tables) {
+    QList<Area> areas;
+    for (const QString& name : ug.tableNames()) {
+        if (!name.startsWith("UgEncount_")) continue;
+        if (name == "UgEncountLevel") continue;
+        Area a;
+        a.name = "Untergrund · Höhlen-Tabelle " + name.mid(10);
+        for (UValue& row : ug.table(name)["table"].list()) addSlot(a, &row["monsno"], kUndergroundLevel);
+        if (!a.entries.empty()) {
+            areas.append(a);
+            if (tables) *tables << name;
+        }
+    }
+    // Seltene Pokemon je Hoehlen-Art (Gruppe = id)
+    QMap<int, Area> special;
+    for (UValue& row : ug.table("UgSpecialPokemon")["Sheet1"].list()) {
+        Area& a = special[row["id"].toInt()];
+        a.name = QString("Untergrund · seltene Pokémon %1").arg(row["id"].toInt());
+        addSlot(a, &row["monsno"], kUndergroundLevel);
+    }
+    for (const Area& a : special) {
+        if (!a.entries.empty()) areas.append(a);
+    }
+    if (tables) *tables << "UgSpecialPokemon";
+    return areas;
+}
+
 void randomizeAreas(QList<Area>& areas, const WildPicker& picker, int mode, QRandomGenerator& rng) {
     // Global 1:1: niedrigstes Level jeder Art ueber alle Gebiete
     QHash<int, int> globalMap;
@@ -274,32 +302,8 @@ bool randomizeWild(const QString& romfs, const GameFiles& files, const WildSetti
             if (error) *error = "Der Untergrund (ugdata) konnte nicht gelesen werden:\n" + err;
             return false;
         }
-        QList<Area> areas;
         QStringList tables;
-        for (const QString& name : result.underground.tableNames()) {
-            if (!name.startsWith("UgEncount_")) continue;
-            if (name == "UgEncountLevel") continue;
-            Area a;
-            a.name = "Untergrund · Höhlen-Tabelle " + name.mid(10);
-            for (UValue& row : result.underground.table(name)["table"].list()) addSlot(a, &row["monsno"], kUndergroundLevel);
-            if (!a.entries.empty()) {
-                areas.append(a);
-                tables << name;
-            }
-        }
-        {
-            // Seltene Pokemon je Hoehlen-Art (Gruppe = id)
-            QMap<int, Area> special;
-            for (UValue& row : result.underground.table("UgSpecialPokemon")["Sheet1"].list()) {
-                Area& a = special[row["id"].toInt()];
-                a.name = QString("Untergrund · seltene Pokémon %1").arg(row["id"].toInt());
-                addSlot(a, &row["monsno"], kUndergroundLevel);
-            }
-            for (const Area& a : special) {
-                if (!a.entries.empty()) areas.append(a);
-            }
-            tables << "UgSpecialPokemon";
-        }
+        QList<Area> areas = undergroundAreas(result.underground, &tables);
         QList<QList<int>> before;
         for (const Area& a : areas) before.append(snapshot(a));
         randomizeAreas(areas, picker, s.mode, rng);
@@ -319,6 +323,39 @@ bool writeWild(const QString& outRomfs, const WildResult& result, QString* error
         !result.gameSettings.save(outRomfs, {"FieldEncountTable_d", "FieldEncountTable_p"}, error)) return false;
     if (!result.undergroundTables.isEmpty() && !result.underground.save(outRomfs, result.undergroundTables, error)) return false;
     return true;
+}
+
+void wildLogs(BundleData& field, BundleData& fieldOriginal, BundleData* ug, BundleData* ugOriginal, Version version,
+              const QHash<int, QString>& zoneNames, bool allField, bool allUnderground, WildResult& out) {
+    out.areas.clear();
+    out.undergroundLog.clear();
+    auto differs = [](const Area& now, const QList<int>& before) {
+        for (size_t k = 0; k < now.entries.size(); k++) {
+            if (static_cast<int>(now.entries[k].value->i) != before.value(static_cast<int>(k))) return true;
+        }
+        return false;
+    };
+    const QString own = version == Version::Pearl ? "FieldEncountTable_p" : "FieldEncountTable_d";
+    if (field.has(own) && fieldOriginal.has(own)) {
+        QList<Area> now = fieldAreas(field.table(own), zoneNames);
+        QList<Area> before = fieldAreas(fieldOriginal.table(own), zoneNames);
+        for (int k = 0; k < now.size() && k < before.size(); k++) {
+            const QList<int> old = snapshot(before[k]);
+            if (allField || differs(now[k], old)) out.areas.append(makeLog(now[k], old));
+        }
+    }
+    if (ug && ugOriginal) {
+        QList<Area> now = undergroundAreas(*ug, nullptr);
+        QList<Area> before = undergroundAreas(*ugOriginal, nullptr);
+        for (int k = 0; k < now.size() && k < before.size(); k++) {
+            const QList<int> old = snapshot(before[k]);
+            if (!allUnderground && !differs(now[k], old)) continue;
+            WildResult::AreaLog log = makeLog(now[k], old);
+            log.levelMin = 0;
+            log.levelMax = 0;
+            out.undergroundLog.append(log);
+        }
+    }
 }
 
 // ------------------------------------------------------------ Spoiler-Log

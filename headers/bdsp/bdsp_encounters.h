@@ -77,6 +77,9 @@ bool randomizeEncounters(const QString& romfs, const QString& exefs, GameFiles& 
 // Schreibt global-metadata.dat (romfs) und den IPS-Patch (exefs) nach outFolder
 bool writeEncounters(const QString& outFolder, const EncounterResult& result, QString* error);
 
+// Ortsname zu einem Skript-/Kartencode (z. B. "d05r0116" -> "Saal des Ursprungs")
+QString placeForZone(const QString& zone);
+
 QList<SpoilerSection> encounterSpoiler(const EncounterResult& result, const GameFiles& files, const GameTexts& texts);
 
 } // namespace bdsp

@@ -150,6 +150,15 @@ QWidget* SwShRandomizerWindow::buildBottomBar() {
     layout->addLayout(infoColumn);
     layout->addStretch();
 
+    openModButton = new QPushButton("Mod öffnen", bar);
+    openModButton->setObjectName("secondary");
+    openModButton->setEnabled(false);
+    openModButton->setCursor(Qt::PointingHandCursor);
+    openModButton->setToolTip("Öffnet eine schon exportierte Mod (Ordner mit „romfs“) im Bearbeiten-Modus, damit du sie "
+                              "weiter ändern kannst. Dafür wird zusätzlich dein Dump gebraucht.");
+    connect(openModButton, &QPushButton::clicked, this, &SwShRandomizerWindow::openMod);
+    layout->addWidget(openModButton);
+
     editOriginalButton = new QPushButton("Original bearbeiten", bar);
     editOriginalButton->setObjectName("secondary");
     editOriginalButton->setEnabled(false);
@@ -569,7 +578,9 @@ QStringList SwShRandomizerWindow::activeAreas() const {
 
 void SwShRandomizerWindow::updateStatus() {
     if (editMode && session) {
-        activeInfo->setText(session->randomized ? "Bearbeiten-Modus · Seed " + sessionSeed : QString("Bearbeiten-Modus · Original"));
+        activeInfo->setText(session->randomized ? "Bearbeiten-Modus · Seed " + sessionSeed
+                                                : (session->reopened ? QString("Bearbeiten-Modus · geöffnete Mod")
+                                                                     : QString("Bearbeiten-Modus · Original")));
         activeInfo->setToolTip(QString());
         detailInfo->setText(editedByHand ? QString("Von Hand geändert – gelb markiert. „Exportieren“ schreibt den Mod.")
                                          : QString("Geänderte Werte sind gelb markiert. „Exportieren“ schreibt den Mod."));
@@ -577,6 +588,7 @@ void SwShRandomizerWindow::updateStatus() {
         return;
     }
     if (editOriginalButton) editOriginalButton->setEnabled(files != nullptr);
+    if (openModButton) openModButton->setEnabled(files != nullptr);
     const QStringList areas = activeAreas();
     if (files) {
         QString game = check.version == swsh::Version::Unknown ? QString("Schwert/Schild")
@@ -1345,7 +1357,12 @@ bool SwShRandomizerWindow::exportTo(const QString& outputFolder, QString* error)
     }
     const swsh::EditSession& s = *session;
     QDir(outputFolder).removeRecursively();
-    const QString seedText = s.randomized ? sessionSeed : QString("– (Original bearbeitet)");
+    QString seedText = s.randomized ? sessionSeed : QString("– (Original bearbeitet)");
+    if (s.reopened) {
+        QString base = sessionSeed;
+        base.remove(" (danach bearbeitet)");
+        seedText = base.isEmpty() || base.startsWith("–") ? QString("– (Mod bearbeitet)") : base + " (danach bearbeitet)";
+    }
     const QString spoilerPath = spoilerLog->isChecked() ? outputFolder + "/Spoiler-Log.html" : QString();
     if (!swsh::exportSession(s, outputFolder + "/romfs", spoilerPath, trainerSettings, seedText, error)) return false;
 
@@ -1358,7 +1375,7 @@ bool SwShRandomizerWindow::exportTo(const QString& outputFolder, QString* error)
         out << "Spiel: " << swsh::versionName(check.version) << "\n";
         out << "Geänderte Trainer: " << swsh::changedTrainerCount(s) << "\n";
         out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << swsh::changedEncounterCount(s) << "\n";
-        out << "Von Hand bearbeitet: " << (editedByHand ? "ja" : "nein") << "\n\n";
+        out << "Von Hand bearbeitet: " << (editedByHand || s.reopened ? "ja" : "nein") << "\n\n";
         if (s.randomized) {
             out << "Trainer-Einstellungen:\n" << QJsonDocument(swsh::settingsToJson(trainerSettings)).toJson() << "\n";
             out << "Starter & Geschenke:\n" << QJsonDocument(swsh::encounterSettingsToJson(encounterSettings)).toJson() << "\n";
@@ -1407,6 +1424,54 @@ void SwShRandomizerWindow::editOriginal() {
     enterEditMode();
 }
 
+bool SwShRandomizerWindow::openModSession(const QString& modFolder, QString* error) {
+    if (!files) {
+        if (error) *error = "Die Spieldateien sind nicht geladen.";
+        return false;
+    }
+    auto next = std::make_unique<swsh::EditSession>();
+    swsh::EditSession& s = *next;
+    s.romfs = QDir::fromNativeSeparators(romfsEdit->text().trimmed());
+    s.version = check.version;
+    s.original = *files;
+    s.work = *files;
+    if (!swsh::loadModInto(s, QDir::fromNativeSeparators(modFolder), error)) return false;
+
+    // Seed aus Info.txt der Mod (nur zur Anzeige)
+    QString seedText;
+    QFile info(QDir(modFolder).filePath("Info.txt"));
+    if (info.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&info);
+        while (!in.atEnd()) {
+            const QString line = in.readLine();
+            if (line.startsWith("Seed: ")) {
+                seedText = line.mid(6).trimmed();
+                break;
+            }
+        }
+    }
+    session = std::move(next);
+    sessionSeed = seedText;
+    return true;
+}
+
+void SwShRandomizerWindow::openMod() {
+    if (editMode) return;
+    const QString start = QDir::current().filePath("Randomizers-Output/Schwert-Schild");
+    const QString folder = QFileDialog::getExistingDirectory(
+        this, "Mod-Ordner wählen (enthält „romfs“)", QDir(start).exists() ? start : QDir::currentPath());
+    if (folder.isEmpty()) return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = openModSession(folder, &error);
+    QApplication::restoreOverrideCursor();
+    if (!ok) {
+        QMessageBox::warning(this, "Mod öffnen", error);
+        return;
+    }
+    enterEditMode();
+}
+
 void SwShRandomizerWindow::enterEditMode() {
     if (!session) return;
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -1416,13 +1481,15 @@ void SwShRandomizerWindow::enterEditMode() {
     editMode = true;
     nav->hide();
     workspace->navigation()->show();
-    sidebarSubtitle->setText(session->randomized ? "Ergebnis ansehen und bearbeiten" : "Original bearbeiten");
+    sidebarSubtitle->setText(session->randomized ? "Ergebnis ansehen und bearbeiten"
+                                                 : (session->reopened ? "Mod bearbeiten" : "Original bearbeiten"));
     backButton->setText("← Einstellungen");
     pages->setCurrentWidget(workspace);
     startButton->setText("Exportieren");
     startButton->setEnabled(true);
     startButton->setToolTip("Schreibt den Mod (romfs) und das Spoiler-Log mit allen Änderungen.");
     editOriginalButton->hide();
+    openModButton->hide();
     updateStatus();
 }
 
@@ -1445,6 +1512,7 @@ bool SwShRandomizerWindow::leaveEditMode(bool ask) {
     pages->setCurrentIndex(nav->currentRow() < 0 ? 0 : nav->currentRow());
     startButton->setText("Randomisieren");
     editOriginalButton->show();
+    openModButton->show();
     updateStatus();
     return true;
 }
@@ -1461,6 +1529,7 @@ void SwShRandomizerWindow::exportAndFinish() {
         return;
     }
     editedByHand = false; // alles ist geschrieben
+    updateStatus();
 
     // Optional direkt in den Mod-Ordner des Emulators
     bool copied = false;

@@ -85,6 +85,9 @@ struct Table {
 
 struct Content {
     QString hint;            // grauer Hinweis oben
+    // Gelbe Hinweise bei Regelverstoessen (z. B. doppelte Art im Team). Werden nach jeder
+    // Aenderung neu berechnet; nichts wird blockiert.
+    std::function<QStringList()> warnings;
     QList<Field> fields;     // Kopf des Eintrags
     int fieldsPerLine = 3;
     QList<Table> tables;

@@ -1,6 +1,8 @@
 #include "headers/bdsp/BdspRandomizerWindow.h"
 #include "headers/modern_ui/modern_widgets.h"
 #include "headers/swsh/SwShTrainerEditor.h"
+#include "headers/bdsp/bdsp_session.h"
+#include "headers/modern_ui/edit_pages.h"
 
 #include <QApplication>
 #include "headers/common/mod_output.h"
@@ -60,6 +62,7 @@ BdspRandomizerWindow::BdspRandomizerWindow(QWidget* parent) : QWidget(parent) {
     pages->addWidget(buildItemsPage());
     pages->addWidget(buildDataPage());
     pages->addWidget(buildTowerPage());
+    pages->addWidget(workspace);
     middle->addWidget(pages, 1);
 
     root->addLayout(middle, 1);
@@ -87,26 +90,43 @@ QWidget* BdspRandomizerWindow::buildSidebar() {
     layout->setContentsMargins(12, 16, 12, 12);
     layout->setSpacing(2);
 
-    auto* back = new QPushButton("← Spielauswahl", sidebar);
-    back->setObjectName("backButton");
-    back->setCursor(Qt::PointingHandCursor);
-    connect(back, &QPushButton::clicked, this, &BdspRandomizerWindow::backRequested);
-    layout->addWidget(back, 0, Qt::AlignLeft);
+    backButton = new QPushButton("← Spielauswahl", sidebar);
+    backButton->setObjectName("backButton");
+    backButton->setCursor(Qt::PointingHandCursor);
+    connect(backButton, &QPushButton::clicked, this, [this]() {
+        if (editMode) {
+            leaveEditMode(true);
+        } else {
+            emit backRequested();
+        }
+    });
+    layout->addWidget(backButton, 0, Qt::AlignLeft);
     layout->addSpacing(6);
 
     auto* title = new QLabel("Sinnoh Randomizer", sidebar);
     title->setObjectName("appTitle");
-    auto* subtitle = new QLabel("Strahlender Diamant und Leuchtende Perle", sidebar);
-    subtitle->setObjectName("appSubtitle");
-    subtitle->setWordWrap(true);
+    sidebarSubtitle = new QLabel("Strahlender Diamant und Leuchtende Perle", sidebar);
+    sidebarSubtitle->setObjectName("appSubtitle");
+    sidebarSubtitle->setWordWrap(true);
     layout->addWidget(title);
-    layout->addWidget(subtitle);
+    layout->addWidget(sidebarSubtitle);
 
     nav = new QListWidget(sidebar);
     nav->addItems(kPages);
     nav->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     nav->setCursor(Qt::PointingHandCursor);
     layout->addWidget(nav, 1);
+
+    // Bearbeiten-Modus: eigene Reiter in derselben Seitenleiste
+    workspace = new modernui::EditWorkspace(this);
+    QListWidget* editNav = workspace->navigation();
+    editNav->setParent(sidebar);
+    editNav->hide();
+    layout->addWidget(editNav, 1);
+    connect(workspace, &modernui::EditWorkspace::edited, this, [this]() {
+        editedByHand = true;
+        updateStatus();
+    });
 
     layout->addWidget(mutedLabel("Bewege die Maus über ein (i), um eine Erklärung zu sehen.", sidebar));
     return sidebar;
@@ -128,6 +148,24 @@ QWidget* BdspRandomizerWindow::buildBottomBar() {
     infoColumn->addWidget(detailInfo);
     layout->addLayout(infoColumn);
     layout->addStretch();
+
+    openModButton = new QPushButton("Mod öffnen", bar);
+    openModButton->setObjectName("secondary");
+    openModButton->setEnabled(false);
+    openModButton->setCursor(Qt::PointingHandCursor);
+    openModButton->setToolTip("Öffnet eine schon exportierte Mod (Ordner mit „romfs“ und ggf. „exefs“) im Bearbeiten-Modus, "
+                              "damit du sie weiter ändern kannst. Dafür wird zusätzlich dein Dump gebraucht.");
+    connect(openModButton, &QPushButton::clicked, this, &BdspRandomizerWindow::openMod);
+    layout->addWidget(openModButton);
+
+    editOriginalButton = new QPushButton("Original bearbeiten", bar);
+    editOriginalButton->setObjectName("secondary");
+    editOriginalButton->setEnabled(false);
+    editOriginalButton->setCursor(Qt::PointingHandCursor);
+    editOriginalButton->setToolTip("Öffnet die unveränderten Spieldaten im Bearbeiten-Modus, ohne etwas zu randomisieren. "
+                                   "So kannst du wie in pkNX alles von Hand ändern.");
+    connect(editOriginalButton, &QPushButton::clicked, this, &BdspRandomizerWindow::editOriginal);
+    layout->addWidget(editOriginalButton);
 
     startButton = new QPushButton("Randomisieren", bar);
     startButton->setObjectName("primary");
@@ -484,6 +522,18 @@ QStringList BdspRandomizerWindow::activeAreas() const {
 }
 
 void BdspRandomizerWindow::updateStatus() {
+    if (editMode && session) {
+        activeInfo->setText(session->randomized ? "Bearbeiten-Modus · Seed " + sessionSeed
+                                                : (session->reopened ? QString("Bearbeiten-Modus · geöffnete Mod")
+                                                                     : QString("Bearbeiten-Modus · Original")));
+        activeInfo->setToolTip(QString());
+        detailInfo->setText(editedByHand ? QString("Von Hand geändert – gelb markiert. „Exportieren“ schreibt den Mod.")
+                                         : QString("Geänderte Werte sind gelb markiert. „Exportieren“ schreibt den Mod."));
+        startButton->setEnabled(true);
+        return;
+    }
+    if (editOriginalButton) editOriginalButton->setEnabled(files != nullptr);
+    if (openModButton) openModButton->setEnabled(files != nullptr);
     const QStringList areas = activeAreas();
     if (files) {
         const QString game = check.version == bdsp::Version::Unknown ? QString("Strahlender Diamant/Leuchtende Perle")
@@ -1140,72 +1190,119 @@ quint64 seedFromText(const QString& text) {
 }
 } // namespace
 
-bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* error) {
+bool BdspRandomizerWindow::prepareSession(bool randomize, QString* error) {
     if (!files) {
         if (error) *error = "Die Spieldateien sind nicht geladen.";
         return false;
     }
-    QString seedText = seedEdit->text().trimmed();
-    if (seedText.isEmpty()) seedText = QString::number(QRandomGenerator::global()->bounded(1000000000));
-    const quint64 seed = seedFromText(seedText);
+    auto fail = [error](const QString& message) {
+        if (error) *error = message;
+        return false;
+    };
 
-    const QString romfs = QDir::fromNativeSeparators(romfsEdit->text().trimmed());
-    bdsp::GameTexts texts;
-    texts.load(romfs);
+    auto next = std::make_unique<bdsp::EditSession>();
+    bdsp::EditSession& s = *next;
+    s.randomized = randomize;
+    s.romfs = QDir::fromNativeSeparators(romfsEdit->text().trimmed());
+    s.exefs = QDir::fromNativeSeparators(exefsEdit->text().trimmed());
+    s.version = check.version;
+    s.original = *files;
+    s.work = *files; // Original bleibt fuer weitere Durchlaeufe unveraendert
 
-    bdsp::GameFiles work = *files; // Original bleibt fuer weitere Durchlaeufe unveraendert
+    QString seedText;
+    if (randomize) {
+        seedText = seedEdit->text().trimmed();
+        if (seedText.isEmpty()) seedText = QString::number(QRandomGenerator::global()->bounded(1000000000));
+        const quint64 seed = seedFromText(seedText);
+        bdsp::GameTexts texts;
+        texts.load(s.romfs);
+        bdsp::GameFiles& work = s.work;
 
-    // Pokemon-Daten zuerst: Starter, Trainer, wilde Pokemon und Kampfturm richten sich nach den neuen
-    // Typen, Attacken und Entwicklungen
-    const bdsp::PokemonDataResult dataResult = bdsp::randomizePokemonData(work, texts, dataSettings, seed);
+        // Pokemon-Daten zuerst: Starter, Trainer, wilde Pokemon und Kampfturm richten sich nach den neuen
+        // Typen, Attacken und Entwicklungen
+        s.dataResult = bdsp::randomizePokemonData(work, texts, dataSettings, seed);
 
-    // Starter, Geschenke, Begegnungen und Tausch zuerst: die Starter von Rivale und Lucius/Lucia
-    // werden dabei festgelegt und vom Trainer-Randomizer nicht mehr veraendert
-    const QString exefs = QDir::fromNativeSeparators(exefsEdit->text().trimmed());
-    bdsp::ScriptData scripts; // Skripte werden von mehreren Bereichen geaendert und einmal gespeichert
-    bdsp::EncounterResult encounters;
-    QString stepError;
-    if (!bdsp::randomizeEncounters(romfs, exefs, work, scripts, encounterSettings, seed, encounters, &stepError)) {
-        if (error) *error = stepError;
+        // Starter, Geschenke, Begegnungen und Tausch zuerst: die Starter von Rivale und Lucius/Lucia
+        // werden dabei festgelegt und vom Trainer-Randomizer nicht mehr veraendert
+        QString stepError;
+        if (!bdsp::randomizeEncounters(s.romfs, s.exefs, work, s.scripts, encounterSettings, seed, s.encounters, &stepError)) {
+            return fail(stepError);
+        }
+        s.trainerResult = bdsp::randomizeTrainers(work, trainerSettings, seed);
+
+        // Items nach den Trainern: Trainer-Items ersetzen die Items der neuen Teams
+        if (!bdsp::randomizeItems(s.romfs, work, s.scripts, itemSettings, seed, s.items, &stepError)) return fail(stepError);
+        if (!bdsp::randomizeWild(s.romfs, work, wildSettings, check.version, seed, s.wildResult, &stepError)) {
+            return fail(stepError);
+        }
+        if (s.wildResult.fieldChanged) {
+            s.field = s.wildResult.gameSettings;
+            s.wildRandomized = true;
+        }
+        if (!s.wildResult.undergroundTables.isEmpty()) {
+            s.ug = s.wildResult.underground;
+            s.undergroundRandomized = true;
+        }
+        if (!bdsp::randomizeTower(work, towerSettings, seed, s.tower, &stepError)) return fail(stepError);
+    }
+
+    QString openError;
+    if (!bdsp::openSession(s, &openError)) return fail(openError);
+    session = std::move(next);
+    sessionSeed = seedText;
+    return true;
+}
+
+bool BdspRandomizerWindow::openModSession(const QString& modFolder, QString* error) {
+    if (!files) {
+        if (error) *error = "Die Spieldateien sind nicht geladen.";
         return false;
     }
-    const bdsp::TrainerRandomizerResult result = bdsp::randomizeTrainers(work, trainerSettings, seed);
+    auto next = std::make_unique<bdsp::EditSession>();
+    bdsp::EditSession& s = *next;
+    s.romfs = QDir::fromNativeSeparators(romfsEdit->text().trimmed());
+    s.exefs = QDir::fromNativeSeparators(exefsEdit->text().trimmed());
+    s.version = check.version;
+    s.original = *files;
+    s.work = *files;
+    if (!bdsp::loadModInto(s, QDir::fromNativeSeparators(modFolder), error)) return false;
+    if (!bdsp::openSession(s, error)) return false;
 
-    // Items nach den Trainern: Trainer-Items ersetzen die Items der neuen Teams
-    bdsp::ItemResult items;
-    if (!bdsp::randomizeItems(romfs, work, scripts, itemSettings, seed, items, &stepError)) {
-        if (error) *error = stepError;
-        return false;
+    // Seed aus Info.txt der Mod (nur zur Anzeige)
+    QString seedText;
+    QFile info(QDir(modFolder).filePath("Info.txt"));
+    if (info.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&info);
+        while (!in.atEnd()) {
+            const QString line = in.readLine();
+            if (line.startsWith("Seed: ")) {
+                seedText = line.mid(6).trimmed();
+                break;
+            }
+        }
     }
-    bdsp::WildResult wild;
-    if (!bdsp::randomizeWild(romfs, work, wildSettings, check.version, seed, wild, &stepError)) {
-        if (error) *error = stepError;
-        return false;
-    }
-    bdsp::TowerResult tower;
-    if (!bdsp::randomizeTower(work, towerSettings, seed, tower, &stepError)) {
-        if (error) *error = stepError;
-        return false;
-    }
+    session = std::move(next);
+    sessionSeed = seedText;
+    return true;
+}
 
+bool BdspRandomizerWindow::exportTo(const QString& outputFolder, QString* error) {
+    if (!session) {
+        if (error) *error = "Es gibt nichts zu exportieren.";
+        return false;
+    }
+    bdsp::EditSession& s = *session;
     QDir(outputFolder).removeRecursively();
-    const QString romfsOut = outputFolder + "/romfs";
-    QString saveError;
-    if (!work.save(romfsOut, &saveError) || !bdsp::writeEncounters(outputFolder, encounters, &saveError) ||
-        !bdsp::writeWild(romfsOut, wild, &saveError) || !scripts.save(romfsOut, &saveError)) {
-        if (error) *error = "Die Dateien konnten nicht geschrieben werden:\n" + saveError;
-        return false;
+    QString seedText = s.randomized ? sessionSeed : QString("– (Original bearbeitet)");
+    if (s.reopened) {
+        QString base = sessionSeed;
+        base.remove(" (danach bearbeitet)");
+        seedText = base.isEmpty() || base.startsWith("–") ? QString("– (Mod bearbeitet)") : base + " (danach bearbeitet)";
     }
-    lastHadExefsPatch = !encounters.ips.isEmpty();
-
-    if (spoilerLog->isChecked()) {
-        QList<bdsp::SpoilerSection> sections = bdsp::encounterSpoiler(encounters, work, texts);
-        sections += bdsp::wildSpoiler(wild, work, texts);
-        sections += bdsp::itemSpoiler(items, texts);
-        sections += bdsp::pokemonDataSpoiler(dataResult, tower, work, texts);
-        bdsp::writeSpoiler(outputFolder + "/Spoiler-Log.html", work, texts, trainerSettings, sections, seedText,
-                           check.version);
-    }
+    const QString spoilerPath = spoilerLog->isChecked() ? outputFolder + "/Spoiler-Log.html" : QString();
+    bool hasExefs = false;
+    if (!bdsp::exportSession(s, outputFolder, spoilerPath, trainerSettings, seedText, &hasExefs, error)) return false;
+    lastHadExefsPatch = hasExefs;
 
     QFile info(outputFolder + "/Info.txt");
     if (info.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -1214,39 +1311,146 @@ bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* err
         out << "Erstellt: " << QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm") << "\n";
         out << "Seed: " << seedText << "\n";
         out << "Spiel: " << bdsp::versionName(check.version) << "\n";
-        out << "Geänderte Trainer: " << result.randomized << "\n";
-        out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << encounters.changes.size() << "\n";
-        int wildAreas = static_cast<int>(wild.areas.size() + wild.undergroundLog.size());
-        out << "Geänderte Gebiete mit wilden Pokémon: " << wildAreas << "\n";
-        out << "Geänderte Items: " << items.fieldItems + items.hiddenItems << " (Boden/versteckt), " << items.shopItems
-            << " (Läden), " << items.trainerItems << " (Trainer)\n";
-        out << "Pokémon-Daten: " << dataResult.types << " Typen, " << dataResult.stats << " Basiswerte, "
-            << dataResult.abilities << " Fähigkeiten, " << dataResult.learnsets << " Lernsets, " << dataResult.tms
-            << " TM-Listen, " << dataResult.evolutions.size() << " Tausch-Entwicklungen\n";
-        out << "Kampfturm-Pokémon: " << tower.pokemon.size() << "\n";
-        if (!encounters.ips.isEmpty()) out << "ExeFS-Patch: exefs/" << encounters.ipsName << "\n";
-        out << "\nTrainer-Einstellungen:\n" << QJsonDocument(bdsp::settingsToJson(trainerSettings)).toJson() << "\n";
-        out << "Starter & Geschenke:\n" << QJsonDocument(bdsp::encounterSettingsToJson(encounterSettings)).toJson() << "\n";
-        out << "Wilde Pokémon:\n" << QJsonDocument(bdsp::wildSettingsToJson(wildSettings)).toJson() << "\n";
-        out << "Items:\n" << QJsonDocument(bdsp::itemSettingsToJson(itemSettings)).toJson() << "\n";
-        out << "Pokémon-Daten:\n" << QJsonDocument(bdsp::pokemonDataSettingsToJson(dataSettings)).toJson() << "\n";
-        out << "Kampfturm:\n" << QJsonDocument(bdsp::towerSettingsToJson(towerSettings)).toJson();
+        out << "Geänderte Trainer: " << bdsp::changedTrainerCount(s) << "\n";
+        out << "Von Hand bearbeitet: " << (editedByHand || s.reopened ? "ja" : "nein") << "\n";
+        if (s.randomized) {
+            const bdsp::ItemResult& items = s.items;
+            const bdsp::PokemonDataResult& dataResult = s.dataResult;
+            out << "Geänderte Starter/Geschenke/Begegnungen/Tausch: " << s.encounters.changes.size() << "\n";
+            const int wildAreas = static_cast<int>(s.wildResult.areas.size() + s.wildResult.undergroundLog.size());
+            out << "Geänderte Gebiete mit wilden Pokémon: " << wildAreas << "\n";
+            out << "Geänderte Items: " << items.fieldItems + items.hiddenItems << " (Boden/versteckt), " << items.shopItems
+                << " (Läden), " << items.trainerItems << " (Trainer)\n";
+            out << "Pokémon-Daten: " << dataResult.types << " Typen, " << dataResult.stats << " Basiswerte, "
+                << dataResult.abilities << " Fähigkeiten, " << dataResult.learnsets << " Lernsets, " << dataResult.tms
+                << " TM-Listen, " << dataResult.evolutions.size() << " Tausch-Entwicklungen\n";
+            out << "Kampfturm-Pokémon: " << s.tower.pokemon.size() << "\n";
+        }
+        if (hasExefs) {
+            const QStringList ips = QDir(outputFolder + "/exefs").entryList({"*.ips"}, QDir::Files);
+            if (!ips.isEmpty()) out << "ExeFS-Patch: exefs/" << ips.first() << "\n";
+        }
+        if (s.randomized) {
+            out << "\nTrainer-Einstellungen:\n" << QJsonDocument(bdsp::settingsToJson(trainerSettings)).toJson() << "\n";
+            out << "Starter & Geschenke:\n" << QJsonDocument(bdsp::encounterSettingsToJson(encounterSettings)).toJson() << "\n";
+            out << "Wilde Pokémon:\n" << QJsonDocument(bdsp::wildSettingsToJson(wildSettings)).toJson() << "\n";
+            out << "Items:\n" << QJsonDocument(bdsp::itemSettingsToJson(itemSettings)).toJson() << "\n";
+            out << "Pokémon-Daten:\n" << QJsonDocument(bdsp::pokemonDataSettingsToJson(dataSettings)).toJson() << "\n";
+            out << "Kampfturm:\n" << QJsonDocument(bdsp::towerSettingsToJson(towerSettings)).toJson();
+        }
     }
     lastSeed = seedText;
     return true;
 }
 
+bool BdspRandomizerWindow::randomizeTo(const QString& outputFolder, QString* error) {
+    return prepareSession(true, error) && exportTo(outputFolder, error);
+}
+
 void BdspRandomizerWindow::startRandomizer() {
+    if (editMode) {
+        exportAndFinish();
+        return;
+    }
     saveSettings();
-    const QString output = QDir::current().filePath(QString(kOutputFolder) + "/Randomizer-1");
     QApplication::setOverrideCursor(Qt::WaitCursor);
     QString error;
-    const bool ok = randomizeTo(output, &error);
+    const bool ok = prepareSession(true, &error);
     QApplication::restoreOverrideCursor();
     if (!ok) {
         QMessageBox::warning(this, "Randomisieren", error);
         return;
     }
+    enterEditMode();
+}
+
+void BdspRandomizerWindow::editOriginal() {
+    if (editMode) return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = prepareSession(false, &error);
+    QApplication::restoreOverrideCursor();
+    if (!ok) {
+        QMessageBox::warning(this, "Original bearbeiten", error);
+        return;
+    }
+    enterEditMode();
+}
+
+void BdspRandomizerWindow::openMod() {
+    if (editMode) return;
+    const QString start = QDir::current().filePath(kOutputFolder);
+    const QString folder = QFileDialog::getExistingDirectory(
+        this, "Mod-Ordner wählen (enthält „romfs“)", QDir(start).exists() ? start : QDir::currentPath());
+    if (folder.isEmpty()) return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = openModSession(folder, &error);
+    QApplication::restoreOverrideCursor();
+    if (!ok) {
+        QMessageBox::warning(this, "Mod öffnen", error);
+        return;
+    }
+    enterEditMode();
+}
+
+void BdspRandomizerWindow::enterEditMode() {
+    if (!session) return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    editedByHand = false;
+    workspace->setSections(bdsp::buildSections(*session), bdsp::buildCatalog(*session));
+    QApplication::restoreOverrideCursor();
+    editMode = true;
+    nav->hide();
+    workspace->navigation()->show();
+    sidebarSubtitle->setText(session->randomized ? "Ergebnis ansehen und bearbeiten"
+                                                 : (session->reopened ? "Mod bearbeiten" : "Original bearbeiten"));
+    backButton->setText("← Einstellungen");
+    pages->setCurrentWidget(workspace);
+    startButton->setText("Exportieren");
+    startButton->setEnabled(true);
+    startButton->setToolTip("Schreibt den Mod (romfs, ggf. exefs) und das Spoiler-Log mit allen Änderungen.");
+    editOriginalButton->hide();
+    openModButton->hide();
+    updateStatus();
+}
+
+bool BdspRandomizerWindow::leaveEditMode(bool ask) {
+    if (!editMode) return true;
+    if (ask && editedByHand) {
+        const auto answer = QMessageBox::question(
+            this, "Bearbeiten beenden",
+            "Deine Änderungen wurden noch nicht exportiert und gehen verloren. Trotzdem zurück zu den Einstellungen?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) return false;
+    }
+    editMode = false;
+    workspace->clear();
+    session.reset();
+    workspace->navigation()->hide();
+    nav->show();
+    sidebarSubtitle->setText("Strahlender Diamant und Leuchtende Perle");
+    backButton->setText("← Spielauswahl");
+    pages->setCurrentIndex(nav->currentRow() < 0 ? 0 : nav->currentRow());
+    startButton->setText("Randomisieren");
+    editOriginalButton->show();
+    openModButton->show();
+    updateStatus();
+    return true;
+}
+
+void BdspRandomizerWindow::exportAndFinish() {
+    const QString output = QDir::current().filePath(QString(kOutputFolder) + "/Randomizer-1");
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QString error;
+    const bool ok = exportTo(output, &error);
+    QApplication::restoreOverrideCursor();
+    if (!ok) {
+        QMessageBox::warning(this, "Exportieren", error);
+        return;
+    }
+    editedByHand = false; // alles ist geschrieben
+    updateStatus();
 
     bool copied = false;
     QString copyError;
@@ -1260,13 +1464,15 @@ void BdspRandomizerWindow::startRandomizer() {
     box.setWindowTitle("Fertig");
     box.setIcon(copyError.isEmpty() ? QMessageBox::Information : QMessageBox::Warning);
     const QString tid = bdsp::titleId(check.version);
-    box.setText("Der Randomizer ist fertig (Seed " + lastSeed + ").");
+    box.setText(session && session->randomized ? "Der Mod ist fertig (Seed " + sessionSeed + ")."
+                                               : QString("Der Mod mit deinen Änderungen ist fertig."));
+    const QString stay = "\n\nDu bleibst im Bearbeiten-Modus und kannst weiter ändern und erneut exportieren.";
     if (copied) {
         box.setInformativeText(QString(lastHadExefsPatch ? "Die Ordner „romfs“ und „exefs“ wurden" : "Der Ordner „romfs“ wurde") +
                                " direkt in deinen Mod-Ordner geschrieben:\n" +
                                QDir::toNativeSeparators(modFolderEdit->text().trimmed()) +
                                "\n\nStarte das Spiel im Emulator (neu) – der Mod ist sofort aktiv. Eine Kopie liegt "
-                               "außerdem in Randomizer-1.");
+                               "außerdem in Randomizer-1." + stay);
     } else if (!copyError.isEmpty()) {
         box.setInformativeText(copyError + "\n\nDie Dateien liegen trotzdem in Randomizer-1 und können von Hand "
                                "kopiert werden.");
@@ -1281,14 +1487,14 @@ void BdspRandomizerWindow::startRandomizer() {
                     "kommt er neben „romfs“ in denselben Mod-Ordner. Auf der Switch gehört die .ips-Datei nach "
                     "atmosphere/exefs_patches/Randomizer/.";
         }
-        box.setInformativeText(text);
+        box.setInformativeText(text + stay);
     }
-    QPushButton* openMod = copied ? box.addButton("Mod-Ordner öffnen", QMessageBox::ActionRole) : nullptr;
+    QPushButton* openModFolder = copied ? box.addButton("Mod-Ordner öffnen", QMessageBox::ActionRole) : nullptr;
     QPushButton* openFolder = box.addButton("Ordner öffnen", QMessageBox::ActionRole);
     QPushButton* openSpoiler = spoilerLog->isChecked() ? box.addButton("Spoiler-Log öffnen", QMessageBox::ActionRole) : nullptr;
     box.addButton(QMessageBox::Close);
     box.exec();
-    if (openMod != nullptr && box.clickedButton() == openMod) {
+    if (openModFolder != nullptr && box.clickedButton() == openModFolder) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(QDir::fromNativeSeparators(modFolderEdit->text().trimmed())));
     } else if (box.clickedButton() == openFolder) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(output));

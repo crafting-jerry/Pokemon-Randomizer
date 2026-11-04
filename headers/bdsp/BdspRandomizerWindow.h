@@ -28,7 +28,8 @@
 #include <QComboBox>
 
 class SwShTrainerEditor;
-namespace modernui { class SegmentedControl; }
+namespace modernui { class SegmentedControl; class EditWorkspace; }
+namespace bdsp { struct EditSession; }
 
 class BdspRandomizerWindow : public QWidget {
     Q_OBJECT
@@ -40,6 +41,11 @@ public:
     void setDumpPaths(const QString& romfs, const QString& exefs);
     bool dumpReady() const { return files != nullptr; }
     bool randomizeTo(const QString& outputFolder, QString* error);
+    // Bearbeiten-Modus: randomisieren (oder Original laden bzw. eine Mod oeffnen), dann bearbeiten und exportieren
+    bool prepareSession(bool randomize, QString* error);
+    bool openModSession(const QString& modFolder, QString* error);
+    bool exportTo(const QString& outputFolder, QString* error);
+    bdsp::EditSession* currentSession() { return session.get(); }
     bdsp::TrainerSettings& trainerSettingsRef() { return trainerSettings; }
     bdsp::EncounterSettings& encounterSettingsRef() { return encounterSettings; }
     bdsp::WildSettings& wildSettingsRef() { return wildSettings; }
@@ -162,6 +168,23 @@ private:
     void refreshTowerPage();
 
     QString lastSeed;
+
+    // Bearbeiten-Modus
+    modernui::EditWorkspace* workspace = nullptr;
+    std::unique_ptr<bdsp::EditSession> session;
+    QString sessionSeed;
+    bool editMode = false;
+    bool editedByHand = false;
+    QPushButton* backButton = nullptr;
+    QPushButton* editOriginalButton = nullptr;
+    QPushButton* openModButton = nullptr;
+    QLabel* sidebarSubtitle = nullptr;
+    void editOriginal();
+    void openMod();
+    void enterEditMode();
+    bool leaveEditMode(bool ask);
+    void exportAndFinish();
+
     bdsp::DumpCheck check;
     std::unique_ptr<bdsp::GameFiles> files;
 

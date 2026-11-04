@@ -57,7 +57,24 @@ T flatField(const QByteArray& buffer, int fieldIndex, T fallback = T()) {
 
 } // namespace
 
-QByteArray readFile(const QString& path, bool* ok) {
+namespace {
+QString overlayBase, overlayMod;
+} // namespace
+
+void setReadOverlay(const QString& dumpRomfs, const QString& modRomfs) {
+    overlayBase = dumpRomfs.isEmpty() ? QString() : QDir::cleanPath(dumpRomfs);
+    overlayMod = modRomfs.isEmpty() ? QString() : QDir::cleanPath(modRomfs);
+}
+
+QByteArray readFile(const QString& pathIn, bool* ok) {
+    QString path = pathIn;
+    if (!overlayBase.isEmpty() && !overlayMod.isEmpty()) {
+        const QString clean = QDir::cleanPath(pathIn);
+        if (clean.startsWith(overlayBase + "/")) {
+            const QString candidate = overlayMod + clean.mid(overlayBase.size());
+            if (QFileInfo::exists(candidate)) path = candidate;
+        }
+    }
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         if (ok) *ok = false;

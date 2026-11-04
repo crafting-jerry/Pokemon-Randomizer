@@ -336,15 +336,17 @@ QString esc(const QString& text) { return text.toHtmlEscaped(); }
 
 bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& texts,
                   const TrainerSettings& settings, const QList<SpoilerSection>& extra,
-                  const QString& seedText, Version version) {
+                  const QString& seedText, Version version, const QSet<int>& editedTrainers,
+                  const QString& editedNote) {
     QHash<int, QString> sectionHtml;
     QHash<int, int> sectionCount;
     int total = 0;
 
     for (const Trainer& trainer : files.trainers.all()) {
-        if (!settings.enabled || trainer.team.isEmpty()) continue;
+        const bool edited = editedTrainers.contains(trainer.index);
+        if ((!settings.enabled && !edited) || trainer.team.isEmpty()) continue;
         const int group = trainerGroup(files, trainer);
-        const bool original = settings.optionsFor(group) == nullptr;
+        const bool original = !edited && (settings.optionsFor(group) == nullptr || !settings.enabled);
         const int theme = settings.keepTypeTheme ? trainerTheme(files, trainer) : -1;
         const QString label = texts.trainerLabel(trainer);
 
@@ -384,6 +386,7 @@ bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& 
         sub << "max. Lv. " + QString::number(highest);
         if (theme >= 0) sub << "Typ: " + texts.typeName(theme);
         if (original) sub << "unverändert";
+        if (edited) sub << editedNote;
         sub << "#" + QString::number(trainer.index);
 
         QString block = "<article class=\"trainer\" data-search=\"" + esc(search.toLower()) + "\"><header><h3>" + esc(label);
@@ -396,7 +399,8 @@ bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& 
 
     const QString gameTitle = version == Version::Unknown ? QString("Strahlender Diamant/Leuchtende Perle") : versionName(version);
     const QString info = "Erstellt am " + QDateTime::currentDateTime().toString("dd.MM.yyyy 'um' HH:mm") +
-                         (settings.enabled ? " · " + QString::number(total) + " Trainer" : QString()) + " · Seed " + esc(seedText);
+                         (settings.enabled || !editedTrainers.isEmpty() ? " · " + QString::number(total) + " Trainer" : QString()) +
+                         " · Seed " + esc(seedText);
     QString html = spoiler::head("BDSP Randomizer", gameTitle, info);
     for (const SpoilerSection& section : extra) {
         html += "<details class=\"section\" data-cat=\"" + esc(section.title) + "\" open>";

@@ -46,6 +46,9 @@ struct ItemResult {
 bool randomizeItems(const QString& romfs, GameFiles& files, ScriptData& scripts, const ItemSettings& settings,
                     quint64 seed, ItemResult& result, QString* error);
 
+// Name eines festen Ladens (ShopTable.FixedShop.ShopID)
+QString fixedShopName(int id);
+
 QList<SpoilerSection> itemSpoiler(const ItemResult& result, const GameTexts& texts);
 
 } // namespace bdsp

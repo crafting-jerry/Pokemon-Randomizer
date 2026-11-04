@@ -74,7 +74,8 @@ bool writeEncounters(const QString& outRomfs, const EncounterResult& result);
 // Fuer den Bearbeiten-Modus
 extern const int kStarterGiftIndexes[3];   // Starter in add_poke.bin: Chimpep, Hopplo, Memmeon
 // Setzt die drei Starter-Modelle bei Delion (placement.gfpak). Leer = nicht moeglich.
-QByteArray applyStarterModels(const QByteArray& placement, int s0, int s1, int s2);
+// anyModel: auch schon ersetzte Modelle ueberschreiben (Mod wieder oeffnen: Original-Modelle zuruecksetzen)
+QByteArray applyStarterModels(const QByteArray& placement, int s0, int s1, int s2, bool anyModel = false);
 // Einordnung einer statischen Begegnung wie im Spoiler-Log: 2 Story/Legendaer, 3 Spielwelt
 int staticCategory(const FlatRecord& encounter, int index);
 bool isDynamaxEncounter(const FlatRecord& encounter);

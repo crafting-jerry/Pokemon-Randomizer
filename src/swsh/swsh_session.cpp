@@ -1,6 +1,7 @@
 #include "headers/swsh/swsh_session.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QSet>
 #include <QtEndian>
@@ -309,6 +310,15 @@ edit::Section trainerSection(EditSession& session) {
             if (theme >= 0) facts << "Typ-Trainer: " + s->texts.typeName(theme);
             facts << "#" + QString::number(ti);
             c.hint = facts.join(" · ");
+            c.warnings = [s, ti]() {
+                QStringList w;
+                QHash<int, int> count;
+                for (const TrainerPoke& p : s->work.trainers.all()[ti].team) count[p.species()]++;
+                for (auto it = count.constBegin(); it != count.constEnd(); ++it)
+                    if (it.value() > 1) w << s->texts.pokemonName(it.key(), 0) + " ist mehrfach im Team.";
+                w.sort();
+                return w;
+            };
 
             edit::Table team;
             team.title = "Team";
@@ -548,6 +558,21 @@ edit::Section encounterSection(EditSession& session) {
             QList<FlatRecord>* l = &s->gifts;
             const QList<FlatRecord>* o = &s->giftsOriginal;
             c.fieldsPerLine = 4;
+            c.warnings = [s, i, starter]() {
+                QStringList w;
+                const int sp = static_cast<int>(s->gifts[i].get(gift::Species));
+                if (starter >= 0) {
+                    for (int k = 0; k < 3; k++) {
+                        const int other = kStarterGiftIndexes[k];
+                        if (k != starter && other < s->gifts.size() && s->gifts[other].get(gift::Species) == sp) {
+                            w << "Ein anderer Starter ist schon " + s->texts.pokemonName(sp, 0) + ".";
+                        }
+                    }
+                } else if ((i == 13 || i == 16 || i == 17) && !sameRecord(s->gifts[i], s->giftsOriginal[i])) {
+                    w << "Dieses Geschenk gehört zur Geschichte. Ein anderes Pokémon kann Zwischensequenzen stören.";
+                }
+                return w;
+            };
             if (starter >= 0) {
                 c.hint = "Starter bei Delion. Das Modell auf dem Tisch zeigt beim Export automatisch das neue Pokémon.";
             } else if (i == 13 || i == 16 || i == 17) {
@@ -595,9 +620,25 @@ edit::Section encounterSection(EditSession& session) {
             QStringList hints;
             hints << "#" + QString::number(i);
             if (isDynamaxEncounter((*o)[i])) hints << "Dynamax-Kampf: das Pokémon muss dynamaximieren können";
-            const int sp = static_cast<int>((*o)[i].get(encounter::Species));
-            if (sp >= 888 && sp <= 892) hints << "Achtung: story-kritisch, ein Wechsel kann Zwischensequenzen stören";
             c.hint = hints.join(" · ");
+            c.warnings = [s, i]() {
+                QStringList w;
+                const FlatRecord& o = s->staticsOriginal[i];
+                const FlatRecord& r = s->statics[i];
+                const int origSpecies = static_cast<int>(o.get(encounter::Species));
+                if (origSpecies >= 888 && origSpecies <= 892 && r.get(encounter::Species) != o.get(encounter::Species)) {
+                    w << "Story-kritisches Pokémon: ein Wechsel kann Zwischensequenzen stören (der Randomizer ändert es nie).";
+                }
+                if (isDynamaxEncounter(o)) {
+                    const int index = s->work.personal.indexOf(static_cast<int>(r.get(encounter::Species)),
+                                                               static_cast<int>(r.get(encounter::Form)));
+                    if (index > 0 && !s->work.personal.canDynamax(index)) {
+                        w << s->texts.pokemonName(static_cast<int>(r.get(encounter::Species)), static_cast<int>(r.get(encounter::Form))) +
+                                 " kann nicht dynamaximieren, der Kampf funktioniert so nicht richtig.";
+                    }
+                }
+                return w;
+            };
             c.fields << recordPokemon("Pokémon", l, o, i, encounter::Species, encounter::Form);
             c.fields << recordNumber("Level", l, o, i, encounter::Level, 1, 100);
             c.fields << recordPicker("Item", edit::Kind::Item, l, o, i, encounter::HeldItem);
@@ -711,6 +752,22 @@ edit::Section raidSection(EditSession& session) {
         entry.build = [s, t]() {
             edit::Content c;
             c.hint = "G-Max = Gigadynamax-Raid. Perfekte DVs = Anzahl der DVs mit 31.";
+            c.warnings = [s, t]() {
+                QStringList w;
+                QHash<int, int> count;
+                for (const NestEntry& n : s->nests[t].entries) {
+                    if (n.species <= 0) continue;
+                    count[static_cast<int>(n.species)]++;
+                    if (n.gigantamax && !canGigantamax(static_cast<int>(n.species), static_cast<int>(n.form))) {
+                        w << s->texts.pokemonName(static_cast<int>(n.species), static_cast<int>(n.form)) +
+                                 " hat keine Gigadynamax-Form.";
+                    }
+                }
+                for (auto it = count.constBegin(); it != count.constEnd(); ++it)
+                    if (it.value() > 1) w << s->texts.pokemonName(it.key(), 0) + " kommt mehrfach in dieser Tabelle vor.";
+                w.sort();
+                return w;
+            };
             edit::Table table;
             table.title = "Pokémon";
             table.columns = {"Pokémon", "G-Max", "1★", "2★", "3★", "4★", "5★", "Perfekte DVs"};
@@ -734,6 +791,9 @@ edit::Section raidSection(EditSession& session) {
                         if (edit::speciesOf(v) <= 0) return;
                         n().species = edit::speciesOf(v);
                         n().form = edit::formOf(v);
+                        // Psiaugon/Servol: Geschlecht haengt an der Form (wie beim Randomizer)
+                        const int sp = edit::speciesOf(v), fm = edit::formOf(v);
+                        n().gender = (sp == 678 || sp == 876) ? (fm == 1 ? 2 : 1) : 0;
                     },
                     orig([](const NestEntry& x) { return edit::pokemonValue(static_cast<int>(x.species), static_cast<int>(x.form)); }));
                 fields << edit::check("G-Max", [n]() { return n().gigantamax ? 1 : 0; }, [n](int v) { n().gigantamax = v ? 1 : 0; },
@@ -823,6 +883,17 @@ edit::Section itemSection(EditSession& session) {
                 edit::Content c;
                 c.hint = hidden ? "Versteckte Items (glitzernde Stellen). Ein Fundort kann mehrere mögliche Items haben."
                                 : "Items in Poké-Bällen auf dem Boden.";
+                c.warnings = [s, indexes]() {
+                    QStringList w;
+                    for (int i : indexes) {
+                        if (i < s->spotsOriginal.size() && s->spots[i].item != s->spotsOriginal[i].item &&
+                            s->itemInfo.isProtected(s->spotsOriginal[i].item)) {
+                            w << "Hier lag im Original " + s->texts.itemName(s->spotsOriginal[i].item) +
+                                     " (TM oder Basis-Item). Ohne es fehlt es dir eventuell im Spiel.";
+                        }
+                    }
+                    return w;
+                };
                 edit::Table table;
                 table.title = "Items";
                 table.columns = {"Item", "Anzahl", "Hinweis"};
@@ -1143,6 +1214,19 @@ edit::Section facilitySection(EditSession& session) {
             const QList<FlatRecord>* o = &s->lairOriginal;
             c.fieldsPerLine = 4;
             c.hint = "Gigadynamax: 2 = Gigadynamax-Form, 1 = normal (wie im Spiel gespeichert).";
+            c.warnings = [s, i]() {
+                QStringList w;
+                const FlatRecord& r = s->lair[i];
+                const int sp = static_cast<int>(r.get(lair::Species)), fm = static_cast<int>(r.get(lair::Form));
+                if (r.get(lair::GigantamaxState) == 2 && !canGigantamax(sp, fm)) {
+                    w << s->texts.pokemonName(sp, fm) + " hat keine Gigadynamax-Form.";
+                }
+                const int index = s->work.personal.indexOf(sp, fm);
+                if (index > 0 && !s->work.personal.canDynamax(index)) {
+                    w << s->texts.pokemonName(sp, fm) + " kann nicht dynamaximieren.";
+                }
+                return w;
+            };
             c.fields << recordPokemon("Pokémon", l, o, i, lair::Species, lair::Form);
             c.fields << recordNumber("Level", l, o, i, lair::Level, 1, 100);
             c.fields << recordNumber("Gigadynamax", l, o, i, lair::GigantamaxState, 0, 2);
@@ -1197,7 +1281,7 @@ const QString kShopFile = "bin/appli/shop/bin/shop_data.bin";
 
 // Dyna-Raids: unveraendert = Ergebnis des Randomizers, sonst alle Nester, die vom Dump abweichen
 RaidResult raidLog(const EditSession& s) {
-    if (sameNests(s.nests, s.nestsStart)) return s.raids;
+    if (!s.reopened && sameNests(s.nests, s.nestsStart)) return s.raids;
     RaidResult out;
     int perVersion[3] = {0, 0, 0};
     for (int t = 0; t < s.nests.size(); t++) {
@@ -1223,7 +1307,7 @@ RaidResult raidLog(const EditSession& s) {
 // Items: unveraendert = Ergebnis des Randomizers, sonst Zaehlung gegenueber dem Dump
 ItemResult itemLog(const EditSession& s) {
     ItemResult out = s.items;
-    if (s.itemInfoLoaded && !sameSpots(s.spots, s.spotsStart)) {
+    if (s.itemInfoLoaded && (s.reopened || !sameSpots(s.spots, s.spotsStart))) {
         const bool randomized = !s.items.placedItems.isEmpty();
         out.fieldItems = out.hiddenItems = 0;
         out.placedItems.clear();
@@ -1234,7 +1318,7 @@ ItemResult itemLog(const EditSession& s) {
             if (changed || randomized) out.placedItems[s.spots[i].item] += 1;
         }
     }
-    if (!sameShop(s.shopSlots, s.shopSlotsStart)) {
+    if (s.reopened || !sameShop(s.shopSlots, s.shopSlotsStart)) {
         out.shopItems = 0;
         for (int i = 0; i < s.shopSlots.size(); i++) {
             if (i >= s.shopSlotsOriginal.size() || s.shopSlots[i].item != s.shopSlotsOriginal[i].item) out.shopItems++;
@@ -1246,7 +1330,7 @@ ItemResult itemLog(const EditSession& s) {
 // Dyna-Hoehle: unveraendert = Ergebnis des Randomizers, sonst alle Eintraege, die vom Dump abweichen
 FacilityResult facilityLog(const EditSession& s) {
     FacilityResult out = s.facilities;
-    if (!sameRecords(s.lair, s.lairStart)) {
+    if (s.reopened || !sameRecords(s.lair, s.lairStart)) {
         out.lairPokemon.clear();
         out.lairLegends.clear();
         for (int i = 0; i < s.lair.size() && i < s.lairOriginal.size(); i++) {
@@ -1257,7 +1341,7 @@ FacilityResult facilityLog(const EditSession& s) {
             (r.get(lair::IsSingleCapture) != 0 ? out.lairLegends : out.lairPokemon).append(c);
         }
     }
-    if (!sameRecords(s.tower, s.towerStart)) {
+    if (s.reopened || !sameRecords(s.tower, s.towerStart)) {
         out.towerPokemon.clear();
         for (int i = 0; i < s.tower.size() && i < s.towerOriginal.size(); i++) {
             const FlatRecord& r = s.tower[i];
@@ -1288,22 +1372,32 @@ QList<EvolutionChange> evolutionLog(const EditSession& s) {
     for (int index = 0; index < s.work.personal.count(); index++) {
         const QList<Evolution> now = s.work.evolutions.get(index);
         const QList<Evolution> start = s.evolutionsStart.get(index);
-        if (sameEvolutions(now, start)) continue;
+        if (!s.reopened && sameEvolutions(now, start)) continue;
         const QList<Evolution> before = s.original.evolutions.get(index);
         const QPair<int, int> self = s.work.personal.speciesForm(index);
         out.erase(std::remove_if(out.begin(), out.end(), [&self](const EvolutionChange& c) {
             return c.fromSpecies == self.first && c.fromForm == self.second;
         }), out.end());
-        for (int k = 0; k < qMax(now.size(), before.size()); k++) {
-            if (k < now.size() && k < before.size() && sameEvolutions({now[k]}, {before[k]})) continue;
+        // Je Ziel-Pokemon alle Wege vorher/jetzt (die Reihenfolge der Eintraege kann sich verschieben)
+        QList<QPair<int, int>> targets;
+        for (const QList<Evolution>* list : {&before, &now}) {
+            for (const Evolution& e : *list) {
+                const QPair<int, int> t(e.species, e.form);
+                if (!targets.contains(t)) targets.append(t);
+            }
+        }
+        for (const QPair<int, int>& t : targets) {
+            QStringList was, is;
+            for (const Evolution& e : before) if (e.species == t.first && e.form == t.second) was << describe(e);
+            for (const Evolution& e : now) if (e.species == t.first && e.form == t.second) is << describe(e);
+            if (was == is) continue;
             EvolutionChange c;
             c.fromSpecies = self.first;
             c.fromForm = self.second;
-            const Evolution& target = k < now.size() ? now[k] : before[k];
-            c.toSpecies = target.species;
-            c.toForm = target.form;
-            c.before = k < before.size() ? describe(before[k]) : QString("—");
-            c.after = (k < now.size() ? describe(now[k]) : QString("entfernt")) + " (von Hand)";
+            c.toSpecies = t.first;
+            c.toForm = t.second;
+            c.before = was.isEmpty() ? QString("—") : was.join(" / ");
+            c.after = (is.isEmpty() ? QString("entfernt") : is.join(" / ")) + (s.reopened ? QString() : QString(" (von Hand)"));
             out.append(c);
         }
     }
@@ -1554,7 +1648,19 @@ bool exportSession(const EditSession& s, const QString& romfsOut, const QString&
     if (!placement.isEmpty()) written &= writeFile(romfsOut + "/" + path::Placement, placement);
 
     // Pokemon-Daten
-    written &= s.work.evolutions.save(romfsOut);
+    // Entwicklungen: vom Randomizer/Bearbeiten gesetzte und alle, die vom Dump abweichen (geoeffnete Mod)
+    {
+        QSet<int> evolutionFiles(s.work.evolutions.changedIndexes().begin(), s.work.evolutions.changedIndexes().end());
+        for (int index = 0; index < s.work.personal.count(); index++) {
+            if (s.work.evolutions.rawFile(index) != s.original.evolutions.rawFile(index)) evolutionFiles.insert(index);
+        }
+        for (int index : evolutionFiles) {
+            const QByteArray raw = s.work.evolutions.rawFile(index);
+            if (!raw.isEmpty()) {
+                written &= writeFile(romfsOut + "/" + path::Evolutions + "/" + EvolutionTable::fileName(index), raw);
+            }
+        }
+    }
     const bool personalChanged = s.work.personal.save() != s.original.personal.save();
     const bool learnsetsChanged = s.work.learnsets.save() != s.original.learnsets.save();
     if (personalChanged) written &= writeFile(romfsOut + "/" + path::Personal, s.work.personal.save());
@@ -1601,12 +1707,64 @@ bool exportSession(const EditSession& s, const QString& romfsOut, const QString&
         bool evolutionsByHand = false;
         for (const EvolutionChange& c : evolutions) evolutionsByHand = evolutionsByHand || c.after.endsWith("(von Hand)");
         for (SpoilerSection& section : extras) {
-            if (evolutionsByHand && section.title == "Tausch-Entwicklungen") section.title = "Entwicklungen";
+            if ((evolutionsByHand || s.reopened) && section.title == "Tausch-Entwicklungen") section.title = "Entwicklungen";
         }
         sections += extras;
         sections += dataSpoiler(dataLog, facilityLog(s), s.work, s.texts);
-        writeSpoiler(spoilerPath, s.work, s.texts, trainerSettings, sections, seedText, s.version, editedTrainers);
+        writeSpoiler(spoilerPath, s.work, s.texts, trainerSettings, sections, seedText, s.version, editedTrainers,
+                     s.reopened ? QString("geändert") : QString("von Hand bearbeitet"));
     }
+    return true;
+}
+
+
+bool loadModInto(EditSession& s, const QString& modFolder, QString* error) {
+    auto fail = [error](const QString& message) {
+        setReadOverlay(QString(), QString());
+        if (error) *error = message;
+        return false;
+    };
+    QString modRomfs = modFolder + "/romfs";
+    if (!QFileInfo::exists(modRomfs + "/bin") && QFileInfo::exists(modFolder + "/bin")) modRomfs = modFolder;
+    if (!QFileInfo::exists(modRomfs + "/bin")) {
+        return fail("In diesem Ordner wurde keine Mod gefunden. Wähle den Ordner, in dem „romfs“ liegt "
+                    "(z. B. Randomizers-Output/Schwert-Schild/Randomizer-1).");
+    }
+    auto modFile = [&modRomfs](const QString& relative) {
+        const QString path = modRomfs + "/" + relative;
+        return QFileInfo::exists(path) ? readFile(path) : QByteArray();
+    };
+
+    // Trainer, Pokemon-Daten, Entwicklungen, Lernsets, Attacken: Mod-Dateien vor dem Dump
+    setReadOverlay(s.romfs, modRomfs);
+    QStringList errors;
+    GameFiles mod;
+    const bool loaded = mod.load(s.romfs, &errors);
+    setReadOverlay(QString(), QString());
+    if (!loaded) return fail("Die Mod konnte nicht gelesen werden:\n" + errors.join("\n"));
+    s.work = mod;
+
+    s.dataTable = modFile(kDataTable);
+    EncounterResult encounters;
+    encounters.gifts = modFile(path::Gifts);
+    encounters.statics = modFile(path::Statics);
+    encounters.trades = modFile(path::Trades);
+
+    // placement.gfpak: Starter-Modelle auf das Original zuruecksetzen (werden beim Export neu gesetzt)
+    const QByteArray placement = modFile(path::Placement);
+    if (!placement.isEmpty()) {
+        const QByteArray restored = applyStarterModels(placement, 810, 813, 816, true);
+        s.placementBase = restored.isEmpty() ? placement : restored;
+        if (s.placementBase == readFile(s.romfs + "/" + path::Placement)) s.placementBase.clear();
+    }
+    s.items.shops = modFile(kShopFile);
+    s.facilities.lair = modFile(kLairFile);
+    s.facilities.tower = modFile(kTowerFile);
+    s.reopened = true;
+
+    if (!openSession(s, &encounters, error)) return false;
+    // Gilt als Dump-Stand fuer "geaendert seit dem Oeffnen" nur intern: Export schreibt alles, was vom Dump abweicht
+    s.dataTableChanged = !s.dataTable.isEmpty() && s.dataTable != readFile(s.romfs + "/" + kDataTable);
     return true;
 }
 

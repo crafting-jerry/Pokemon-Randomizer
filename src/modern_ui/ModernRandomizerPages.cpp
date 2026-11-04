@@ -568,6 +568,15 @@ QStringList ModernRandomizerWindow::activeAreas() const {
 }
 
 void ModernRandomizerWindow::updateStatus() {
+    if (editMode && session && activeInfo != nullptr) {
+        activeInfo->setText(session->randomized ? "Bearbeiten-Modus · Seed " + sessionSeed
+                                                : (session->reopened ? QString("Bearbeiten-Modus · geöffnete Mod")
+                                                                     : QString("Bearbeiten-Modus · Original")));
+        activeInfo->setToolTip(QString());
+        seedInfo->setText(editedByHand ? QString("Von Hand geändert – gelb markiert. „Exportieren“ schreibt die Mod.")
+                                       : QString("Geänderte Werte sind gelb markiert. „Exportieren“ schreibt die Mod."));
+        return;
+    }
     updateSeedInfo();
     if (activeInfo == nullptr) {
         return;

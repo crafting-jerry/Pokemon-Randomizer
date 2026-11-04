@@ -36,6 +36,9 @@ class svTrainers: public QObject, public SVShared{
         // --- Spoiler-Log (HTML) ---
         bool writeSpoiler = true;
         void writeSpoilerLog();
+        // Kategorie und Beschriftung je Trainer-Index (wie im Spoiler-Log), values = trdata "values"
+        QHash<int, QPair<QString, QString>> spoilerLabels(const json& values) const;
+        static QStringList spoilerCategoryOrder();
         // Zusaetzliche Abschnitte (Tera-Raids) und ob Trainer im Log stehen (aus = nur die Zusatz-Abschnitte)
         QList<SvRaidSpoilerTable> raidSpoiler;
         bool spoilerTrainers = true;

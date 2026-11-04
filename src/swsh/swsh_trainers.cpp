@@ -518,7 +518,8 @@ QString esc(const QString& text) { return text.toHtmlEscaped(); }
 
 bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& texts,
                   const TrainerSettings& settings, const QList<SpoilerSection>& extra,
-                  const QString& seedText, Version version, const QSet<int>& editedTrainers) {
+                  const QString& seedText, Version version, const QSet<int>& editedTrainers,
+                  const QString& editedNote) {
     QHash<int, QString> sectionHtml;
     QHash<int, int> sectionCount;
     int total = 0;
@@ -575,7 +576,7 @@ bool writeSpoiler(const QString& path, const GameFiles& files, const GameTexts& 
         sub << "max. Lv. " + QString::number(highest);
         if (theme >= 0) sub << "Typ: " + texts.typeName(theme);
         if (original) sub << "unverändert";
-        if (edited) sub << "von Hand bearbeitet";
+        if (edited) sub << editedNote;
         sub << "#" + QString::number(trainer.index);
 
         QString block = "<article class=\"trainer\" data-search=\"" + esc(search.toLower()) + "\"><header><h3>" + esc(label);

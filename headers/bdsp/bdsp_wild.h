@@ -51,6 +51,11 @@ bool randomizeWild(const QString& romfs, const GameFiles& files, const WildSetti
                    quint64 seed, WildResult& result, QString* error);
 bool writeWild(const QString& outRomfs, const WildResult& result, QString* error);
 
+// Spoiler-Eintraege aus dem aktuellen Stand im Vergleich zum Dump (fuer den Bearbeiten-Modus).
+// allField/allUnderground: auch Gebiete ohne Unterschied auflisten (so wie nach dem Randomisieren)
+void wildLogs(BundleData& field, BundleData& fieldOriginal, BundleData* ug, BundleData* ugOriginal, Version version,
+              const QHash<int, QString>& zoneNames, bool allField, bool allUnderground, WildResult& out);
+
 QList<SpoilerSection> wildSpoiler(const WildResult& result, const GameFiles& files, const GameTexts& texts);
 
 } // namespace bdsp
