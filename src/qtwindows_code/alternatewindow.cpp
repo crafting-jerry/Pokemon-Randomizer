@@ -1,5 +1,4 @@
 #include "headers/qtwindows_headers/AlternateWindow.h"
-#include "headers/sv_randomizer_headers/SVRandomizerWindow.h"
 #include "headers/modern_ui/ModernRandomizerWindow.h"
 #include "headers/swsh/SwShRandomizerWindow.h"
 #include "headers/bdsp/BdspRandomizerWindow.h"
@@ -16,13 +15,7 @@ AlternateWindow::AlternateWindow(int id, QWidget *parent) : QWidget(parent), win
     switch(id){
         case 0:
         {
-            svrandomizer = new SVRandomizerWindow();
-            svrandomizer->createLayout();
-
-            // Neue Oberflaeche. Die klassische Ansicht bleibt unsichtbar als Randomizer-Kern erhalten.
-            svrandomizer->setParent(this);
-            svrandomizer->hide();
-            ModernRandomizerWindow* modern = new ModernRandomizerWindow(svrandomizer);
+            ModernRandomizerWindow* modern = new ModernRandomizerWindow();
             stackedWidget->addWidget(modern);
             connect(modern, &ModernRandomizerWindow::backRequested, this, &AlternateWindow::backRequested);
             layout->setContentsMargins(0, 0, 0, 0);
@@ -47,10 +40,8 @@ AlternateWindow::AlternateWindow(int id, QWidget *parent) : QWidget(parent), win
             break;
         }
         default:
-            label = new QLabel(QString("This is alternate window %1").arg(id + 1), this);
-            layout->addWidget(label);
+            break;
     }
 
-        layout->addWidget(stackedWidget); // Ensure stackedWidget is added to the layout
-        setLayout(layout); // Set the layout for AlternateWindow
+    layout->addWidget(stackedWidget);
 }

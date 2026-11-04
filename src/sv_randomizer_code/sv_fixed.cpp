@@ -1,4 +1,5 @@
 #include "headers/sv_randomizer_headers/sv_fixed.h"
+#include <stdexcept>
 
 svFixed::svFixed(){
 
@@ -13,7 +14,7 @@ void svFixed::randomize(){
 
     bool sizeCheck = getAllowedPokemon(fixedEncountersPokemon, allowedPokemon, "fixedEncounters");
     if(sizeCheck == false){
-        qFatal()<<"Not Enough usable Pokemon for Fixed Encounters";
+        throw std::runtime_error("Zu wenige erlaubte Pokémon für die statischen Begegnungen. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
     }
     int devid = 0;
     int form = 0;

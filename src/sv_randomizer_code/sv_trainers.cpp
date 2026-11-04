@@ -1,4 +1,6 @@
 #include "headers/sv_randomizer_headers/sv_trainers.h"
+#include <stdexcept>
+#include "headers/common/trainer_smart.h"
 
 svTrainers::svTrainers(){
 
@@ -10,9 +12,10 @@ svTrainers::~svTrainers(){
 
 void svTrainers::noSoftlockeParadise(){
     QMap<int, QList<int>> allowedPokemon;
-    bool sizeCheck = getAllowedPokemon(paradisePokemon.allowedPokemons, allowedPokemon, "Koraidon");
-
     if(paradisePokemon.randomize == true){
+        if(!getAllowedPokemon(paradisePokemon.allowedPokemons, allowedPokemon, "Koraidon") || allowedPokemon.isEmpty()){
+            throw std::runtime_error("Zu wenige erlaubte Pokémon für die Trainer. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
+        }
         QList<int> protocol = paradisePokemon.randomizedIndex;
         for(int i = 0; i< protocol.length(); i++){
             QMap<QString, int> checkDict = {{"id", 0}, {"form", 0}};
@@ -39,9 +42,10 @@ void svTrainers::noSoftlockeParadise(){
 
 void svTrainers::noSoftlockeTerapagos(){
     QMap<int, QList<int>> allowedPokemon;
-    bool sizeCheck = getAllowedPokemon(hiddenTreasure.allowedPokemons, allowedPokemon, "Terapagos");
-
     if(hiddenTreasure.randomize == true){
+        if(!getAllowedPokemon(hiddenTreasure.allowedPokemons, allowedPokemon, "Terapagos") || allowedPokemon.isEmpty()){
+            throw std::runtime_error("Zu wenige erlaubte Pokémon für die Trainer. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
+        }
         QList<int> protocol = hiddenTreasure.randomizedIndex;
         for(int i = 0; i< protocol.length(); i++){
             QMap<QString, int> checkDict = {{"id", 0}, {"form", 0}};
@@ -91,31 +95,6 @@ void svTrainers::buildTrainerThemeMap(){
     }
 }
 
-QMap<int, QList<QPair<int,int>>> svTrainers::buildThemedCandidates(QMap<int, QList<int>>& allowedPokemon){
-    QMap<int, QList<QPair<int,int>>> candidates;
-
-    for(auto it = allowedPokemon.constBegin(); it != allowedPokemon.constEnd(); ++it){
-        int pokemon = it.key();
-        int formCount = static_cast<int>(pokemonMapping["pokemons"][pokemon]["forms"].size());
-
-        for(int form : it.value()){
-            if(form < 0 || form >= formCount){
-                continue;
-            }
-            const json& formData = pokemonMapping["pokemons"][pokemon]["forms"][form];
-            int type1 = formData["type1"];
-            int type2 = formData["type2"];
-
-            candidates[type1].append(qMakePair(pokemon, form));
-            if(type2 != type1){
-                candidates[type2].append(qMakePair(pokemon, form));
-            }
-        }
-    }
-
-    return candidates;
-}
-
 int svTrainers::getMaxNumberOfChanges(json trainerEntry, bool NULLS){
     int totalChanges = 0;
 
@@ -140,34 +119,57 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
         auto entries = trainersData["values"].get<std::vector<json>>();
         QMap<int, QList<int>> allowedPokemon;
 
-        bool sizeCheck = getAllowedPokemon(trainer.allowedPokemons, allowedPokemon, "Trainers");
+        if(!getAllowedPokemon(trainer.allowedPokemons, allowedPokemon, "Trainers") || allowedPokemon.isEmpty()){
+            throw std::runtime_error("Zu wenige erlaubte Pokémon für die Trainer. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
+        }
         qDebug()<<"Total Number of randomized Trainers:"<< trainer.randomizedIndex.size();
 
-        // Typ-Themen: Kandidaten einmalig berechnen (wird in den Threads nur gelesen)
-        QMap<int, QList<QPair<int,int>>> themedCandidatesData;
-        if(trainer.keepTypeTheme == true){
-            themedCandidatesData = buildThemedCandidates(allowedPokemon);
-        }
-        const QMap<int, QList<QPair<int,int>>>& themedCandidates = themedCandidatesData;
-
-        // Level-Regeln: alle erlaubten (Pokemon, Form)-Paare einmalig sammeln
-        bool levelRules = trainer.fullyEvolvedLevel > 0 || trainer.levelAppropriateEvos;
-        QList<QPair<int,int>> allCandidatesData;
-        if(levelRules == true){
-            for(auto it = allowedPokemon.constBegin(); it != allowedPokemon.constEnd(); ++it){
-                for(int form : it.value()){
-                    allCandidatesData.append(qMakePair(it.key(), form));
+        // Alle erlaubten (Pokemon, Form)-Paare einmalig sammeln und in normale und legendaere
+        // (inkl. Mysterioese und Ultrabestien) aufteilen; in den Threads wird nur gelesen
+        auto isLegendPair = [this](int pokemon, int form){
+            for(const QMap<int, QList<int>>* group : {&gen1_legends, &gen2_legends, &gen3_legends, &gen4_legends,
+                                                      &gen5_legends, &gen6_legends, &gen7_legends, &gen8_legends,
+                                                      &gen9_legends, &UB}){
+                if(group->value(pokemon).contains(form)){
+                    return true;
+                }
+            }
+            return false;
+        };
+        QList<QPair<int,int>> normalCandidates, legendCandidates;
+        QHash<int, QList<QPair<int,int>>> normalByType, legendByType;
+        for(auto it = allowedPokemon.constBegin(); it != allowedPokemon.constEnd(); ++it){
+            const json& forms = std::as_const(pokemonMapping)["pokemons"][it.key()]["forms"];
+            const int formCount = static_cast<int>(forms.size());
+            for(int form : it.value()){
+                if(form < 0 || form >= formCount){
+                    continue;
+                }
+                const bool legend = isLegendPair(it.key(), form);
+                const QPair<int,int> candidate = qMakePair(it.key(), form);
+                (legend ? legendCandidates : normalCandidates).append(candidate);
+                QHash<int, QList<QPair<int,int>>>& byType = legend ? legendByType : normalByType;
+                const int type1 = forms[form]["type1"];
+                const int type2 = forms[form]["type2"];
+                byType[type1].append(candidate);
+                if(type2 != type1){
+                    byType[type2].append(candidate);
                 }
             }
         }
-        const QList<QPair<int,int>>& allCandidates = allCandidatesData;
+        // Gibt es keine normalen Pokemon (z. B. nur Legendaere erlaubt), werden die Legendaeren genommen
+        if(normalCandidates.isEmpty()){
+            normalCandidates = legendCandidates;
+            normalByType = legendByType;
+        }
+        const bool levelRules = trainer.fullyEvolvedLevel > 0 || trainer.levelAppropriateEvos;
 
         QFuture<void> future = QtConcurrent::map(entries, [&](json& entry){
             int index = &entry - &entries[0];
 
             // Only randomize if its within the allowed indexes (and not marked as "Nicht aendern")
             if(trainer.randomizedIndex.contains(index) && !keepOriginalIndexes.contains(index)){
-                json localMapping = pokemonMapping;
+                const json& localMapping = pokemonMapping; // nur lesen (mehrere Threads)
 
                 QRandomGenerator randGen(seeds[index]);
                 qDebug() << "Thread" << QThread::currentThreadId() << "working on trainer:"
@@ -177,7 +179,7 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                 int themeType = -1;
                 if(trainer.keepTypeTheme == true && trainerThemeType.contains(index)){
                     themeType = trainerThemeType.value(index);
-                    if(themedCandidates.value(themeType).isEmpty()){
+                    if(normalByType.value(themeType).isEmpty()){
                         qDebug()<<"Keine erlaubten Pokemon fuer Typ"<<themeType<<"- Trainer"<<index<<"wird normal randomisiert";
                         themeType = -1;
                     }
@@ -346,49 +348,28 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                         entry[key]["talentValue"]["agi"] = 31;
                     }
 
-                    int pokemon = 0;
-                    int form = 0;
-
-                    bool picked = false;
                     QPair<int,int> pick;
                     // Reihenfolge der Versuche, falls ein Pool zu klein ist:
                     // 1. alle Regeln, 2. ohne Level-Regeln, 3. Duplikate erlauben (nur als letzter Ausweg)
-                    auto pickWithFallback = [&](const QList<QPair<int,int>>& pool, bool applyLevelRules) -> bool{
-                        if(pickFrom(pool, applyLevelRules, true, pick)) return true;
-                        if(applyLevelRules == true && pickFrom(pool, false, true, pick)) return true;
-                        if(pickFrom(pool, applyLevelRules, false, pick)) return true;
-                        return applyLevelRules == true && pickFrom(pool, false, false, pick);
+                    auto pickWithFallback = [&](const QList<QPair<int,int>>& pool) -> bool{
+                        if(pickFrom(pool, levelRules, true, pick)) return true;
+                        if(levelRules == true && pickFrom(pool, false, true, pick)) return true;
+                        if(pickFrom(pool, levelRules, false, pick)) return true;
+                        return levelRules == true && pickFrom(pool, false, false, pick);
                     };
 
-                    if(themeType != -1){
-                        // Typ-Thema: nur Pokemon/Formen mit passendem Typ (der Typ hat immer Vorrang)
-                        const QList<QPair<int,int>> pool = themedCandidates.value(themeType);
-                        picked = pickWithFallback(pool, levelRules);
-                    }else if(levelRules == true){
-                        picked = pickWithFallback(allCandidates, true);
+                    // Typ-Thema: nur Pokemon/Formen mit passendem Typ (der Typ hat immer Vorrang)
+                    const QList<QPair<int,int>> pool = themeType != -1 ? normalByType.value(themeType) : normalCandidates;
+                    const QList<QPair<int,int>> legendPool = themeType != -1 ? legendByType.value(themeType) : legendCandidates;
+                    // Legendaere mit der eingestellten Chance; passt keines (Typ, Level, schon im Team) -> normales Pokemon
+                    const bool legend = rollPercent(randGen, trainer.legendaryChance) &&
+                                        (pickFrom(legendPool, levelRules, true, pick) ||
+                                         (levelRules == true && pickFrom(legendPool, false, true, pick)));
+                    if(!legend && !pickWithFallback(pool)){
+                        continue; // keine erlaubten Pokemon (sollte nie passieren)
                     }
-
-                    if(picked == true){
-                        pokemon = pick.first;
-                        form = pick.second;
-                    }else{
-                        // Obtained Randomized Pokemon (Manual since using randGen
-                        // Keine Duplikate: neue Art suchen, nach vielen Fehlversuchen Duplikat erlauben
-                        int attempts = 0;
-                        pokemon = randGen.bounded(1, maxAllowedId);
-                        while(!allowedPokemon.contains(pokemon) || (usedSpecies.contains(pokemon) && attempts < 5000)){
-                            pokemon = randGen.bounded(1, maxAllowedId);
-                            attempts++;
-                        }
-
-                        if(static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()) == 0){
-                            qFatal()<<"Pokemon: "<<pokemon;
-                        }
-                        form = randGen.bounded(0, static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()));
-                        while(!allowedPokemon[pokemon].contains(form)){
-                            form = randGen.bounded(0, static_cast<int>(localMapping["pokemons"][pokemon]["forms"].size()));
-                        }
-                    }
+                    const int pokemon = pick.first;
+                    const int form = pick.second;
 
                     usedSpecies.insert(pokemon);
 
@@ -451,14 +432,9 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                         }
                     }
 
-                    // Set Shinyness
-                    if(trainer.allowShinies == true){
-                        if(entry[key]["rareType"] != "RARE"){
-                            int shinyRate = randGen.bounded(1, 101);
-                            if(shinyRate>50){
-                                entry[key]["rareType"] = "RARE";
-                            }
-                        }
+                    // Schillernd mit der eingestellten Chance (schillernde Original-Pokemon bleiben es)
+                    if(entry[key]["rareType"] != "RARE" && rollPercent(randGen, trainer.shinyChance)){
+                        entry[key]["rareType"] = "RARE";
                     }
 
                     // Set moves

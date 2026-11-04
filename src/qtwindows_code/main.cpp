@@ -4,24 +4,25 @@
 #include <QMutex>
 #include <QSettings>
 #include <QIcon>
+#include <QDateTime>
+#include <QFile>
 #include "headers/qtwindows_headers/mainwindow.h"
 
-// Global file, mutex, and settings
+// Log-Datei (logs/logs.log), wird von mehreren Threads beschrieben
 QFile logFile;
 QMutex logMutex;
-bool enableDebugInRelease = false; // This will be read from QSettings
 
-void customMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg) {
+void customMessageHandler(QtMsgType type, const QMessageLogContext&, const QString &msg) {
     QMutexLocker locker(&logMutex); // Ensure thread safety
 
-    QString logMessage = QString("[%1] %2")
-                             .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"))
-                             .arg(msg);
+    const QString logMessage = QString("[%1] %2")
+                                   .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"), msg);
 
     #ifdef QT_DEBUG
         // In debug mode, also log to the terminal
         switch (type) {
         case QtDebugMsg:
+        case QtInfoMsg:
             fprintf(stdout, "Debug: %s\n", logMessage.toLocal8Bit().constData());
             break;
         case QtWarningMsg:
@@ -32,15 +33,22 @@ void customMessageHandler(QtMsgType type, const QMessageLogContext &context, con
             break;
         case QtFatalMsg:
             fprintf(stderr, "Fatal: %s\n", logMessage.toLocal8Bit().constData());
-            logFile.close();
-            abort();
+            break;
         }
     #endif
 
-    // Always write to file
+    // Immer in die Datei schreiben. Nur Warnungen und Fehler sofort auf die Platte bringen
+    // (jede Debug-Zeile einzeln zu schreiben bremst das Randomisieren stark aus).
     if (logFile.isOpen()) {
-        QTextStream stream(&logFile);
-        stream << logMessage << Qt::endl;
+        logFile.write(logMessage.toUtf8());
+        logFile.write("\n");
+        if (type != QtDebugMsg && type != QtInfoMsg) {
+            logFile.flush();
+        }
+    }
+    if (type == QtFatalMsg) {
+        logFile.close();
+        abort();
     }
 }
 
@@ -94,10 +102,13 @@ int main(int argc, char *argv[]) {
     // Move the window to the center
     mainWindow.move(x, y);
 
-    // Creates log file
-    QString logFilePath = "logs/logs.log";
-    logFile.setFileName(logFilePath);
-    if (!logFile.open(QIODevice::Append | QIODevice::Text)) {
+    // Log-Datei: bei jedem Start neu (die vom letzten Start bleibt als logs-alt.log erhalten),
+    // damit sie nicht endlos waechst
+    QDir().mkpath("logs");
+    QFile::remove("logs/logs-alt.log");
+    QFile::rename("logs/logs.log", "logs/logs-alt.log");
+    logFile.setFileName("logs/logs.log");
+    if (!logFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
         qCritical() << "Failed to open log file!";
     }
 
@@ -111,5 +122,8 @@ int main(int argc, char *argv[]) {
     bool alwaysOnTopValue = settings.value("AlwaysOnTop", false).toBool();
     mainWindow.alwaysOnTop(alwaysOnTopValue);
 
-    return app.exec();
+    const int result = app.exec();
+    qInstallMessageHandler(nullptr);
+    logFile.close(); // restliche Zeilen schreiben
+    return result;
 }

@@ -2,27 +2,17 @@
 #define ALTERNATEWINDOW_H
 
 #include <QWidget>
-#include <QLabel>
-#include <QMainWindow>
-#include <QToolBar>
-#include <QListWidget>
-#include <QTabBar>
-#include <QGridLayout>
-#include <QPushButton>
-#include <QVector>
 #include <QStackedWidget>
-#include "../sv_randomizer_headers/SVRandomizerWindow.h"
 
+// Rahmen um das Fenster eines Spiels (0 = Karmesin/Purpur, 1 = Schwert/Schild, 2 = Diamant/Perle)
 class AlternateWindow : public QWidget {
     Q_OBJECT
 
 public:
     AlternateWindow(int id, QWidget *parent = nullptr);
-    SVRandomizerWindow *svrandomizer;
 signals:
     void backRequested();
 private:
-    QLabel *label;
     int windowId;
     QStackedWidget *stackedWidget;
 };

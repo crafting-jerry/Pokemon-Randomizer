@@ -1,4 +1,5 @@
 #include "headers/sv_randomizer_headers/sv_wilds.h"
+#include <stdexcept>
 
 QList<QString> choosenBiomes = {};
 
@@ -142,7 +143,6 @@ void svWilds::randomizeWilds(QMap<int, QList<int>> allowedPokemon, bool ogerponT
         {"formno", 0},
         {"minlevel", 2},
         {"maxlevel", 99},
-        {"lotvalue", 1+std::rand()%50},
         {"lotvalue", randNum.bounded(1, 51)},
         {"biome1", pickRandomBiome().toStdString()},
         {"lotvalue1", randNum.bounded(1, 51)},
@@ -206,7 +206,7 @@ void svWilds::randomize(){
 
         bool sizeCheck = getAllowedPokemon(paldeaWilds, usableWildPokemon, "Paldea Wilds");
         if(sizeCheck == false){
-            qFatal()<<"Not Enough usable Pokemon for Paldea Wilds";
+            throw std::runtime_error("Zu wenige erlaubte Pokémon für die wilden Pokémon in Paldea. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
         }
 
         randomizeWilds(usableWildPokemon, ogerponTerapagosPaldea);
@@ -218,7 +218,7 @@ void svWilds::randomize(){
         output = "world/data/encount/pokedata/pokedata_su1/";
         bool sizeCheck = getAllowedPokemon(paldeaWilds, usableWildPokemon, "Kitakami Wilds");
         if(sizeCheck == false){
-            qFatal()<<"Not Enough usable Pokemon for Kitakami Wilds";
+            throw std::runtime_error("Zu wenige erlaubte Pokémon für die wilden Pokémon in Kitakami. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
         }
         randomizeWilds(usableWildPokemon, ogerponTerapagosPaldea);
 
@@ -228,7 +228,7 @@ void svWilds::randomize(){
         output = "world/data/encount/pokedata/pokedata_su2/";
         sizeCheck = getAllowedPokemon(paldeaWilds, usableWildPokemon, "Blueberry Wilds");
         if(sizeCheck == false){
-            qFatal()<<"Not Enough usable Pokemon for Blueberry Wilds";
+            throw std::runtime_error("Zu wenige erlaubte Pokémon für die wilden Pokémon in der Blaubeer-Akademie. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
         }
         randomizeWilds(usableWildPokemon, ogerponTerapagosPaldea);
     }else{
@@ -239,7 +239,7 @@ void svWilds::randomize(){
             output = "world/data/encount/pokedata/pokedata_su1/";
             bool sizeCheck = getAllowedPokemon(kitakamiWilds, usableWildPokemon, "Kitakami Wilds");
             if(sizeCheck == false){
-                qFatal()<<"Not Enough usable Pokemon for Kitakami Wilds";
+                throw std::runtime_error("Zu wenige erlaubte Pokémon für die wilden Pokémon in Kitakami. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
             }
             randomizeWilds(usableWildPokemon, ogerponTerapagosKitakami);
         }
@@ -251,7 +251,7 @@ void svWilds::randomize(){
             output = "world/data/encount/pokedata/pokedata_su2/";
             bool sizeCheck = getAllowedPokemon(blueberrWilds, usableWildPokemon, "Blueberry Wilds");
             if(sizeCheck == false){
-                qFatal()<<"Not Enough usable Pokemon for Blueberry Wilds";
+                throw std::runtime_error("Zu wenige erlaubte Pokémon für die wilden Pokémon in der Blaubeer-Akademie. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
             }
             randomizeWilds(usableWildPokemon, ogerponTearapagosBlueberry);
         }

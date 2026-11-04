@@ -18,6 +18,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QStringList>
+#include <QDoubleSpinBox>
 
 namespace modernui {
 
@@ -66,6 +67,9 @@ private:
 
 // Zeile: [widget] [i]
 QHBoxLayout* rowWithInfo(QWidget* widget, const QString& info, bool stretch = true);
+
+// Zeile: [Text] [0,00 %] [i] – Prozentwert 0 bis 100 mit zwei Nachkommastellen (wie in pkNX)
+QDoubleSpinBox* addPercentRow(QVBoxLayout* layout, const QString& text, const QString& info, QWidget* parent);
 
 // Kleines graues Label
 QLabel* mutedLabel(const QString& text, QWidget* parent = nullptr);

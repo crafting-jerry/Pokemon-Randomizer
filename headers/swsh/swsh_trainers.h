@@ -31,11 +31,18 @@ struct TrainerOptions {
     bool smartMovesets = true;
     bool smartTMs = true;
     bool keepGigantamax = true;   // Gigadynamax-Asse bleiben Gigadynamax-faehig
-    bool legendaries = false;     // Legendaere, Mysterioese und Ultrabestien erlauben
+    double legendaryChance = 0.0; // Chance in Prozent je Pokemon: Legendaer, Mysterioes oder Ultrabestie
     bool smartAI = false;
     bool perfectIVs = false;
-    bool shinies = false;
+    double shinyChance = 0.0;     // Chance in Prozent je Pokemon: schillernd
 };
+
+// Alte Vorlagen hatten Schalter statt Prozentwerten: "an" wird zu diesen Werten
+constexpr double kOldLegendaryChance = 10.0;
+constexpr double kOldShinyChance = 50.0;
+// Liest einen Prozentwert; fehlt er, wird der alte Schalter (oldKey) umgerechnet
+double chanceFromJson(const QJsonObject& j, const QString& key, const QString& oldKey, double oldOnValue,
+                      double fallback);
 
 QJsonObject optionsToJson(const TrainerOptions& o);
 TrainerOptions optionsFromJson(const QJsonObject& json, const TrainerOptions& fallback);

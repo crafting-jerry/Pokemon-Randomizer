@@ -1,4 +1,5 @@
 #include "headers/sv_randomizer_headers/sv_starters.h"
+#include <stdexcept>
 
 svStarters::svStarters(){
 
@@ -14,7 +15,7 @@ void svStarters::obtainSelectedStarters(int index, QString starterName, int form
     int genderId = 0;
     bool rareId = false;
 
-    if(!pokemonMapping["pokemons_name"].contains(starterName)){
+    if(!pokemonMapping["pokemons_name"].contains(starterName.toStdString())){
         randomizePokemon(usableStarterPokemon, devid, formId, genderId, rareId, startersRates, startersMaps["values"][index]["pokeData"]);
 
         if(shiny == true){
@@ -124,7 +125,7 @@ void svStarters::randomize(){
         qDebug()<<"Getting Allowed Pokemon for Starters";
         bool sizeCheck = getAllowedPokemon(startersPokemon, usableStarterPokemon, "Starters");
         if(sizeCheck == false){
-            qFatal()<<"Not Enough usable Pokemon for Starters";
+            throw std::runtime_error("Zu wenige erlaubte Pokémon für die Starter. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
         }
         // Sprigattito
         qDebug()<<"Randomizing Sprigatito";
@@ -172,7 +173,7 @@ void svStarters::randomize(){
         qDebug()<<"Getting Allowed Pokemon for Gifts";
         bool sizeCheck = getAllowedPokemon(giftsPokemon, usableGiftPokemon, "Gifts");
         if(sizeCheck == false){
-            qFatal()<<"Not Enough usable Pokemon for Kitakami Wilds";
+            throw std::runtime_error("Zu wenige erlaubte Pokémon für die Geschenke. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
         }
 
         int devid = 1;
@@ -223,8 +224,7 @@ void svStarters::randomize(){
     // Write the modified JSON back to the output file
     QFile outFile(qBaseDir.filePath("SV_STARTERS_FLATBUFFERS/eventAddPokemon_array.json"));
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        qFatal() << "Error: Could not open output file for writing!";
-        return;
+        throw std::runtime_error("Eine Ausgabedatei konnte nicht geschrieben werden.");
     }
 
     QTextStream outStream(&outFile);

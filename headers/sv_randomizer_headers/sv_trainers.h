@@ -47,8 +47,6 @@ class svTrainers: public QObject, public SVShared{
         // Trainer-Index -> Typ-ID (0=Normal ... 17=Fee, Reihenfolge wie teraTypes)
         QMap<int, int> trainerThemeType;
         void buildTrainerThemeMap();
-        // Alle erlaubten (Pokemon, Form)-Paare, die den Typ besitzen, gruppiert nach Typ
-        QMap<int, QList<QPair<int,int>>> buildThemedCandidates(QMap<int, QList<int>>& allowedPokemon);
 
         bool paldeaForAll = false;
 

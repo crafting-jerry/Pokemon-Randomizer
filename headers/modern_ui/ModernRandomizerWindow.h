@@ -3,9 +3,8 @@
 
 // ---------------------------------------------------------------------------
 // ModernRandomizerWindow
-// Neue deutsche Oberflaeche mit Seitenleiste. Die eigentliche Randomisierung
-// laeuft weiter ueber die klassische Ansicht (SVRandomizerWindow), deren
-// Einstellungen hier vor dem Start gesetzt werden.
+// Deutsche Oberflaeche fuer Karmesin/Purpur mit Seitenleiste. Die Einstellungen
+// werden vor dem Start in den Randomizer-Kern (SVRandomizerRunner) uebertragen.
 // ---------------------------------------------------------------------------
 
 #include <QWidget>
@@ -28,13 +27,13 @@
 #include "modern_widgets.h"
 #include "edit_pages.h"
 #include "trainer_settings_editor.h"
-#include "../sv_randomizer_headers/SVRandomizerWindow.h"
+#include "../sv_randomizer_headers/sv_runner.h"
 #include "../sv_randomizer_headers/sv_session.h"
 
 class ModernRandomizerWindow : public QWidget {
     Q_OBJECT
 public:
-    explicit ModernRandomizerWindow(SVRandomizerWindow* classic, QWidget* parent = nullptr);
+    explicit ModernRandomizerWindow(QWidget* parent = nullptr);
     ~ModernRandomizerWindow();
 
 signals:
@@ -60,7 +59,7 @@ private:
         QWidget* row = nullptr;
     };
 
-    SVRandomizerWindow* classic;
+    std::unique_ptr<SVRandomizerRunner> runner; // Randomizer-Kern (vor code, wegen der Initialisierung)
     SVRandomizerCode& code;
 
     // Seitenaufbau

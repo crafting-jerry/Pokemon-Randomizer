@@ -38,7 +38,13 @@ const QString kInfoSmartAI =
 const QString kInfoPerfectIVs =
     "Alle Trainer-Pokémon bekommen in jedem Wert die bestmöglichen DVs (31).";
 const QString kInfoShinies =
-    "Trainer-Pokémon können schillernd sein (etwa jedes zweite).";
+    "Chance für jedes Trainer-Pokémon, schillernd zu sein. 0 % = nie (bis auf Pokémon, die schon im Original "
+    "schillern), 100 % = alle. Dezimalwerte wie 0,5 % sind möglich.";
+const QString kInfoLegendaries =
+    "Chance für jedes Trainer-Pokémon, ein Legendäres oder Mysteriöses Pokémon bzw. eine Ultrabestie zu sein. "
+    "0 % = nie, 100 % = nur Legendäre. Dezimalwerte wie 2,5 % sind möglich. Welche Legendären in Frage kommen, "
+    "legst du unten bei „Legendäre aus Gen.“ fest. Passt kein Legendäres (Typ, Level oder schon im Team), wird "
+    "ein normales Pokémon gewählt.";
 
 } // namespace
 
@@ -153,13 +159,23 @@ TrainerSettingsEditor::TrainerSettingsEditor(trainerSettings* settings, QWidget*
     }
 
     // --- Mehr Optionen (eingeklappt) ---
-    auto* more = new Collapsible("Mehr Optionen: Kluge KI, perfekte DVs, Schillernde, erlaubte Pokémon", false, this);
+    auto* more = new Collapsible("Mehr Optionen: Legendäre, Schillernde, Kluge KI, perfekte DVs, erlaubte Pokémon",
+                                 false, this);
     layout->addWidget(more);
     QVBoxLayout* m = more->body();
 
+    legendaries = addPercentRow(m, "Legendäre Pokémon", kInfoLegendaries, this);
+    connect(legendaries, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double value) {
+        s->legendaryChance = value;
+        emit changed();
+    });
+    shinies = addPercentRow(m, "Schillernde Pokémon", kInfoShinies, this);
+    connect(shinies, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double value) {
+        s->shinyChance = value;
+        emit changed();
+    });
     smartAI = addCheck(m, "Kluge KI", kInfoSmartAI, &s->makeAISmart);
     perfectIVs = addCheck(m, "Perfekte DVs", kInfoPerfectIVs, &s->forcePerfectIV);
-    shinies = addCheck(m, "Schillernde Pokémon erlauben", kInfoShinies, &s->allowShinies);
 
     // Erlaubte Pokemon
     limiterEditor = new LimiterEditor(&s->allowedPokemons, this);
@@ -204,7 +220,8 @@ void TrainerSettingsEditor::refresh() {
     randomTera->setChecked(s->randomizeTeras);
     smartAI->setChecked(s->makeAISmart);
     perfectIVs->setChecked(s->forcePerfectIV);
-    shinies->setChecked(s->allowShinies);
+    legendaries->setValue(s->legendaryChance);
+    shinies->setValue(s->shinyChance);
     limiterEditor->refresh();
 
     blockers.clear();
@@ -238,7 +255,8 @@ QJsonObject trainerSettingsToJson(const trainerSettings& s) {
     o["randomizeTeras"] = s.randomizeTeras;
     o["singlesOrDoubles"] = s.singlesOrDoubles;
     o["allDoubles"] = s.allDoubles;
-    o["allowShinies"] = s.allowShinies;
+    o["shinyChance"] = s.shinyChance;
+    o["legendaryChance"] = s.legendaryChance;
     o["force6Pokemon"] = s.force6Pokemon;
     o["extraPokemon"] = s.extraPokemon;
     o["forcePerfectIV"] = s.forcePerfectIV;
@@ -257,7 +275,12 @@ void trainerSettingsFromJson(const QJsonObject& o, trainerSettings& s) {
     s.randomizeTeras = o["randomizeTeras"].toBool(s.randomizeTeras);
     s.singlesOrDoubles = o["singlesOrDoubles"].toBool(s.singlesOrDoubles);
     s.allDoubles = o["allDoubles"].toBool(s.allDoubles);
-    s.allowShinies = o["allowShinies"].toBool(s.allowShinies);
+    // Alte Vorlagen hatten Schalter: "Schillernde erlauben" = 50 %, Legendaere ueber die Generationen = 10 %
+    if (o.contains("shinyChance")) {
+        s.shinyChance = qBound(0.0, o["shinyChance"].toDouble(s.shinyChance), 100.0);
+    } else if (o.contains("allowShinies")) {
+        s.shinyChance = o["allowShinies"].toBool() ? 50.0 : 0.0;
+    }
     s.force6Pokemon = o["force6Pokemon"].toBool(s.force6Pokemon);
     s.extraPokemon = o["extraPokemon"].toBool(s.extraPokemon);
     s.forcePerfectIV = o["forcePerfectIV"].toBool(s.forcePerfectIV);
@@ -268,6 +291,11 @@ void trainerSettingsFromJson(const QJsonObject& o, trainerSettings& s) {
     s.smartMovesTMs = o["smartMovesTMs"].toBool(s.smartMovesTMs);
 
     limiterFromJson(o["allowedPokemons"].toObject(), s.allowedPokemons);
+    if (o.contains("legendaryChance")) {
+        s.legendaryChance = qBound(0.0, o["legendaryChance"].toDouble(s.legendaryChance), 100.0);
+    } else if (o.contains("allowedPokemons")) {
+        s.legendaryChance = s.allowedPokemons.genLegends.contains(true) ? 10.0 : 0.0;
+    }
 }
 
 // ------------------------------- LimiterEditor ------------------------------

@@ -69,7 +69,8 @@ private:
     QCheckBox* randomTera = nullptr;
     QCheckBox* smartAI = nullptr;
     QCheckBox* perfectIVs = nullptr;
-    QCheckBox* shinies = nullptr;
+    QDoubleSpinBox* shinies = nullptr;
+    QDoubleSpinBox* legendaries = nullptr;
     LimiterEditor* limiterEditor = nullptr;
 
     QCheckBox* addCheck(QVBoxLayout* layout, const QString& text, const QString& info, bool* target);

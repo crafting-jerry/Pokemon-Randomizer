@@ -1,4 +1,5 @@
 #include "headers/sv_randomizer_headers/sv_shared_class.h"
+#include <stdexcept>
 
 json cleanSceneJSON;
 
@@ -7,8 +8,12 @@ json cleanSceneJSON;
     Globally
  */
 SVShared::SVShared(){
-    pokemonMapping = readJsonQFile("SV_FLATBUFFERS/pokemon_mapping.json");
-    pokemonPersonalData = readJsonQFile("SV_FLATBUFFERS/SV_PERSONAL/personal_array_clean.json");
+    // Jeder Bereich (Starter, Wilde, Trainer ...) ist ein eigenes SVShared-Objekt: die beiden grossen Dateien
+    // nur einmal einlesen und danach kopieren (Kopieren ist viel schneller als erneutes Einlesen)
+    static const json mappingCache = readJsonQFile("SV_FLATBUFFERS/pokemon_mapping.json");
+    static const json personalCache = readJsonQFile("SV_FLATBUFFERS/SV_PERSONAL/personal_array_clean.json");
+    pokemonMapping = mappingCache;
+    pokemonPersonalData = personalCache;
     qBaseDir = QDir(QDir::current().absoluteFilePath("SV_FLATBUFFERS"));
     maxGeneration = 9;
     maxAllowedId = 1026; // 1025 + 1 (egg counts as a pokemon so it needs to be index 0)
@@ -257,8 +262,7 @@ void SVShared::patchFileDescriptor() {
     // Write the modified data back to a JSON file
     QFile outfile("SV_FLATBUFFERS/SV_DATA_FLATBUFFERS/data.json");
     if (!outfile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        qFatal() << "Error: Could not open data.json for writing!";
-        return;
+        throw std::runtime_error("Die Datei data.json konnte nicht geschrieben werden.");
     }
 
     QTextStream out(&outfile);
@@ -286,7 +290,7 @@ void SVShared::recursiveFindOfPokemonSceneTable(json& sceneFile, QVector<int> de
                 if (byteValue.is_number_unsigned()) {
                     data.push_back(static_cast<uint8_t>(byteValue.get<uint32_t>()));
                 } else {
-                    qFatal() << "Invalid byte value in Data array.\n";
+                    throw std::runtime_error("Ungültige Daten in der Dateiliste (data.json).");
                 }
             }
 
@@ -414,8 +418,7 @@ void SVShared::modifyPokemonScene(QVector<int> devId, QVector<int> formId, QVect
     // Write the modified JSON back to the output file
     QFile outFile(outputFilePath);
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        qFatal() << "Error: Could not open output file for writing!";
-        return;
+        throw std::runtime_error("Eine Ausgabedatei konnte nicht geschrieben werden.");
     }
 
     QTextStream outStream(&outFile);

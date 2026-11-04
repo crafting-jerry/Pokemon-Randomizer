@@ -24,8 +24,6 @@ public:
 
     //General
     bool auto_patch = true; // Added
-    bool kaizo_mode = false;       // Added
-    unsigned int bulk_amount = 1;
     QString seed = "";
 
     svStarters svRandomizerStarters;

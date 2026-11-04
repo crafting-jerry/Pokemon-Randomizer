@@ -195,9 +195,6 @@ unix:!macx {
 
 }
 
-# Subfolders visibility in the project sidebar
-VPATH += $$unique($$dirname($$files(src/*, true)))
-VPATH += $$unique($$dirname($$files(headers/*, true)))
 
 # Recursively include all .cpp and .h files from src and headers directories
 SOURCES += $$files(src/*.cpp, true) \

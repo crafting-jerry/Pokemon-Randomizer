@@ -1,4 +1,5 @@
 #include "headers/sv_randomizer_headers/sv_boss.h"
+#include <stdexcept>
 
 void svBoss::saveIndividualPokemon(int index, QVector<int> &dev, QVector<int> &form, QVector<int> &genderV, QVector<bool> &rareV){
     dev.push_back(pokemonMapping["pokemons_dev"][cleanBossData["values"][index]["pokeData"]["devId"]]["devid"]);
@@ -964,7 +965,7 @@ void svBoss::randomizeFight(unsigned long long index){
                 genderStd = "FEMALE";
             }
         }else{
-            int rand_gender = 1+std::rand()%100;
+            int rand_gender = randNum.bounded(1, 101);
             if(rand_gender > int(pokemonPersonalData["entry"][int(pokemonMapping["pokemons"][random]["devid"])]["gender"]["ratio"])){
                 genderStd = "MALE";
             }else{
@@ -974,7 +975,7 @@ void svBoss::randomizeFight(unsigned long long index){
         }
 
         cleanBossData["values"][index]["pokeData"]["sex"] = genderStd.toStdString();
-        int val = 1+std::rand()%100; // range is [1, shiny_starter_rate)
+        int val = randNum.bounded(1, 101); // 1 % Shiny-Chance
         if(val == 1){
             cleanBossData["values"][index]["pokeData"]["rareType"] = "RARE";
         }
@@ -1619,7 +1620,9 @@ void svBoss::randomizeBosses(){
         qDebug()<<"Getting clean trainer info";
     }
 
-    bool sizeCheck = getAllowedPokemon(BossLimiter, allowedPokemon, "Bosses");
+    if(!getAllowedPokemon(BossLimiter, allowedPokemon, "Bosses") || allowedPokemon.isEmpty()){
+        throw std::runtime_error("Zu wenige erlaubte Pokémon für die Bosse. Bitte unter „Erlaubte Pokémon“ mehr auswählen.");
+    }
 
     for(unsigned long long i =0; i<cleanBossData["values"].size(); i++){
         if(i == 115){

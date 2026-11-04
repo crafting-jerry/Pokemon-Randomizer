@@ -23,6 +23,14 @@
 #include <QStringList>
 #include <QRandomGenerator>
 
+// true mit der angegebenen Wahrscheinlichkeit in Prozent (0 = nie, 100 = immer).
+// Bei 0 und 100 wird keine Zufallszahl verbraucht.
+inline bool rollPercent(QRandomGenerator& rng, double percent) {
+    if (percent <= 0.0) return false;
+    if (percent >= 100.0) return true;
+    return rng.generateDouble() * 100.0 < percent;
+}
+
 class TrainerSmartData {
 public:
     // Baut alle Tabellen aus dem spielneutralen Datenmodell auf

@@ -88,10 +88,11 @@ struct Pools {
     QHash<int, QList<Candidate>> byType;
 };
 
-Pools buildPools(const GameFiles& files, bool legendaries) {
+// legendary = false: alle ausser Legendaeren; true: nur Legendaere
+Pools buildPools(const GameFiles& files, bool legendary) {
     Pools pools;
     for (int species = 1; species <= kMaxSpecies; species++) {
-        if (!legendaries && isLegendary(species)) continue;
+        if (isLegendary(species) != legendary) continue;
         const int base = files.personal.indexOf(species, 0);
         if (base <= 0 || !files.personal.isPresent(base)) continue;
         const int forms = files.personal.formCount(base);
@@ -226,7 +227,8 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
 
     TrainerSmartData smart;
     smart.build(files.toGameData());
-    const Pools pools[2] = {buildPools(files, false), buildPools(files, true)};
+    const Pools normalPool = buildPools(files, false);
+    const Pools legendPool = buildPools(files, true);
     QRandomGenerator master(seed);
 
     for (Trainer& trainer : files.trainers.all()) {
@@ -235,10 +237,8 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
         if (trainer.team.isEmpty()) continue;
         const TrainerOptions* opt = settings.optionsFor(trainerGroup(files, trainer));
         if (opt == nullptr) continue;
-        const Pools& pool = pools[opt->legendaries ? 1 : 0];
-
         int theme = settings.keepTypeTheme ? trainerTheme(files, trainer) : -1;
-        if (theme >= 0 && pool.byType.value(theme).isEmpty()) theme = -1;
+        if (theme >= 0 && normalPool.byType.value(theme).isEmpty()) theme = -1;
 
         // --- Teamgroesse ---
         const int original = trainer.team.size();
@@ -292,9 +292,14 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
                 return true;
             };
             // 1. alle Regeln, 2. ohne Level-Regeln, 3. Duplikate erlauben (letzter Ausweg)
-            const QList<Candidate>& list = theme >= 0 ? pool.byType[theme] : pool.all;
+            const QList<Candidate> list = theme >= 0 ? normalPool.byType.value(theme) : normalPool.all;
             Candidate pick;
-            if (!pickFrom(list, levelRules, true, pick) && !(levelRules && pickFrom(list, false, true, pick)) &&
+            // Legendaere mit der eingestellten Chance; passt keines (Typ, Level, schon im Team) -> normales Pokemon
+            const QList<Candidate> legendList = theme >= 0 ? legendPool.byType.value(theme) : legendPool.all;
+            const bool legend = rollPercent(rng, opt->legendaryChance) &&
+                                (pickFrom(legendList, levelRules, true, pick) ||
+                                 (levelRules && pickFrom(legendList, false, true, pick)));
+            if (!legend && !pickFrom(list, levelRules, true, pick) && !(levelRules && pickFrom(list, false, true, pick)) &&
                 !pickFrom(list, levelRules, false, pick) && !(levelRules && pickFrom(list, false, false, pick))) {
                 continue; // sollte nie passieren
             }
@@ -318,7 +323,7 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
             if (opt->perfectIVs) {
                 for (int& iv : mon.ivs) iv = 31;
             }
-            if (opt->shinies && !mon.shiny) mon.shiny = rng.bounded(100) < 50;
+            if (!mon.shiny && rollPercent(rng, opt->shinyChance)) mon.shiny = true;
         }
 
         if (opt->smartAI) trainer.aiBit |= 111; // wie Arenaleiter, Top Vier und Champ

@@ -22,7 +22,7 @@ void svPersonal::randomizeStats(){
     QFuture<void> future = QtConcurrent::map(entries, [&](json& entry){
         if(entry["is_present"] == true){
             json localPokemon = entry;
-            json localMapping = pokemonMapping;
+            const json& localMapping = pokemonMapping; // nur lesen (mehrere Threads)
 
             int speciesCheck = localPokemon["species"]["model"];
             int formCheck = localPokemon["species"]["form"];
@@ -468,7 +468,7 @@ void svPersonal::fixEvolution(json& pokemon, int species, int form){
 }
 
 void svPersonal::randomizeEvos(json& pokemon, QRandomGenerator& localRand){
-    json maps = pokemonMapping;
+    const json& maps = pokemonMapping; // nur lesen
     QMap<int, QList<int>> localBanned = bannedPokemon;
     int localMax = maxAllowedId;
     if(evolveEveryLevel == true){

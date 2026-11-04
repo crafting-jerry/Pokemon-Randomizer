@@ -36,8 +36,8 @@ const QStringList kPages = {
 };
 } // namespace
 
-ModernRandomizerWindow::ModernRandomizerWindow(SVRandomizerWindow* classicWindow, QWidget* parent)
-    : QWidget(parent), classic(classicWindow), code(classicWindow->code()) {
+ModernRandomizerWindow::ModernRandomizerWindow(QWidget* parent)
+    : QWidget(parent), runner(std::make_unique<SVRandomizerRunner>()), code(runner->code()) {
     setObjectName("modernRoot");
     setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet(modernui::styleSheet());
@@ -550,7 +550,6 @@ void ModernRandomizerWindow::updateSeedInfo() {
 
 void ModernRandomizerWindow::applyToRandomizer() {
     code.seed = seedEdit->text().trimmed();
-    code.bulk_amount = 1; // mehrere Durchlaeufe gibt es nicht mehr (Bearbeiten-Modus)
     code.auto_patch = autoPatch->isChecked();
 
     svTrainers& t = code.svRandomizerTrainers;
@@ -633,15 +632,15 @@ bool ModernRandomizerWindow::prepareSession(bool randomize, QString* error) {
             seedText = QString::number(QRandomGenerator::global()->bounded(1000000000));
             code.seed = seedText;
         }
-        const bool ok = classic->runRandomizerRuns(false, error);
+        const bool ok = runner->run(error);
         code.auto_patch = autoPatch->isChecked();
         code.svRandomizerTrainers.writeSpoiler = spoilerLog->isChecked();
         if (!ok) return false;
-        if (classic->lastOutputFolders.isEmpty()) {
+        if (runner->lastOutputFolder.isEmpty()) {
             if (error) *error = "Der Randomizer hat kein Ergebnis erzeugt.";
             return false;
         }
-        base = classic->lastOutputFolders.first() + "/romfs";
+        base = runner->lastOutputFolder + "/romfs";
         sessionSeed = seedText;
         fresh->randomized = true;
     } else {

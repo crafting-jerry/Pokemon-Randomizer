@@ -102,7 +102,9 @@ class sharedRandomizerClass{
             bool allDoubles = false;
             QList <int> randomizedIndex;
 
-            bool allowShinies = false;
+            double shinyChance = 0.0;      // Chance in Prozent je Pokemon: schillernd
+            double legendaryChance = 0.0;  // Chance in Prozent je Pokemon: Legendaer/Mysterioes/Ultrabestie
+                                           // (welche Legendaeren erlaubt sind, bestimmt allowedPokemons)
             bool force6Pokemon = false;
             bool extraPokemon = false;
             bool forcePerfectIV = false;
@@ -472,9 +474,9 @@ class sharedRandomizerClass{
         };
 
         QMap<int, QList<int>> gen8_legends = {
-            {888, {0, 1}}, {889, {0, 1}}, {890, {0, 1}}, {891, {0}}, {892, {0}},
+            {888, {0, 1}}, {889, {0, 1}}, {890, {0, 1}}, {891, {0}}, {892, {0, 1}},
             {893, {0, 1}}, {894, {0}}, {895, {0}}, {896, {0}}, {897, {0}},
-            {898, {0, 1, 2}}, {905, {0}}, {144, {1}}, {145, {1}}, {146, {1}},
+            {898, {0, 1, 2}}, {905, {0, 1}}, {144, {1}}, {145, {1}}, {146, {1}},
         };
 
         QMap<int, QList<int>> gigantamax; // Empty for now

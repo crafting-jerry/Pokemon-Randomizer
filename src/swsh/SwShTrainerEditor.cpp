@@ -32,13 +32,16 @@ const QString kInfoGigantamax =
     "Pokémon, die im Original gigadynamaximieren (z. B. die Asse der Arenaleiter), werden durch ein Pokémon mit "
     "Gigadynamax-Form ersetzt – passend zum Typ der Arena, wenn möglich.";
 const QString kInfoLegendaries =
-    "Legendäre und Mysteriöse Pokémon sowie Ultrabestien dürfen in Trainer-Teams vorkommen.";
+    "Chance für jedes Trainer-Pokémon, ein Legendäres oder Mysteriöses Pokémon bzw. eine Ultrabestie zu sein. "
+    "0 % = nie, 100 % = nur Legendäre. Dezimalwerte wie 2,5 % sind möglich. Passt kein Legendäres (Typ, Level "
+    "oder schon im Team), wird ein normales Pokémon gewählt.";
 const QString kInfoSmartAI =
     "Trainer nutzen die stärkste Kampf-KI des Spiels und wechseln Pokémon taktisch aus.";
 const QString kInfoPerfectIVs =
     "Alle Trainer-Pokémon bekommen in jedem Wert die bestmöglichen DVs (31).";
 const QString kInfoShinies =
-    "Trainer-Pokémon können schillernd sein (etwa jedes zweite).";
+    "Chance für jedes Trainer-Pokémon, schillernd zu sein. 0 % = nie (bis auf Pokémon, die schon im Original "
+    "schillern), 100 % = alle. Dezimalwerte wie 0,5 % sind möglich.";
 } // namespace
 
 SwShTrainerEditor::SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* parent, bool galar)
@@ -124,12 +127,20 @@ SwShTrainerEditor::SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* par
         gigantamax->hide();
     }
 
-    auto* more = new Collapsible("Mehr Optionen: Legendäre, Kluge KI, perfekte DVs, Schillernde", false, this);
+    auto* more = new Collapsible("Mehr Optionen: Legendäre, Schillernde, Kluge KI, perfekte DVs", false, this);
     layout->addWidget(more);
-    legendaries = addCheck(more->body(), "Legendäre Pokémon erlauben", kInfoLegendaries, &o->legendaries);
+    legendaries = addPercentRow(more->body(), "Legendäre Pokémon", kInfoLegendaries, this);
+    connect(legendaries, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double value) {
+        o->legendaryChance = value;
+        emit changed();
+    });
+    shinies = addPercentRow(more->body(), "Schillernde Pokémon", kInfoShinies, this);
+    connect(shinies, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double value) {
+        o->shinyChance = value;
+        emit changed();
+    });
     smartAI = addCheck(more->body(), "Kluge KI", kInfoSmartAI, &o->smartAI);
     perfectIVs = addCheck(more->body(), "Perfekte DVs", kInfoPerfectIVs, &o->perfectIVs);
-    shinies = addCheck(more->body(), "Schillernde Pokémon erlauben", kInfoShinies, &o->shinies);
 
     refresh();
 }
@@ -163,10 +174,10 @@ void SwShTrainerEditor::refresh() {
     smartMoves->setChecked(o->smartMovesets);
     smartTMs->setChecked(o->smartTMs);
     gigantamax->setChecked(o->keepGigantamax);
-    legendaries->setChecked(o->legendaries);
+    legendaries->setValue(o->legendaryChance);
     smartAI->setChecked(o->smartAI);
     perfectIVs->setChecked(o->perfectIVs);
-    shinies->setChecked(o->shinies);
+    shinies->setValue(o->shinyChance);
     blockers.clear();
     updateEnabledStates();
 }

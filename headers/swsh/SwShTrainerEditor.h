@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 #include <QCheckBox>
+#include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QWidget>
 
@@ -34,10 +35,10 @@ private:
     QCheckBox* smartMoves = nullptr;
     QCheckBox* smartTMs = nullptr;
     QCheckBox* gigantamax = nullptr;
-    QCheckBox* legendaries = nullptr;
+    QDoubleSpinBox* legendaries = nullptr;
     QCheckBox* smartAI = nullptr;
     QCheckBox* perfectIVs = nullptr;
-    QCheckBox* shinies = nullptr;
+    QDoubleSpinBox* shinies = nullptr;
 
     QCheckBox* addCheck(QVBoxLayout* layout, const QString& text, const QString& info, bool* target);
     void updateEnabledStates();

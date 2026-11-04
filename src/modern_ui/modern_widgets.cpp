@@ -3,6 +3,7 @@
 #include <QToolTip>
 #include <QCursor>
 #include <QStyle>
+#include <QLocale>
 
 namespace modernui {
 
@@ -131,6 +132,30 @@ QHBoxLayout* rowWithInfo(QWidget* widget, const QString& info, bool stretch) {
     return row;
 }
 
+QDoubleSpinBox* addPercentRow(QVBoxLayout* layout, const QString& text, const QString& info, QWidget* parent) {
+    auto* row = new QHBoxLayout();
+    row->setSpacing(6);
+    auto* label = new QLabel(text, parent);
+    label->setMinimumWidth(150); // mehrere Prozentfelder untereinander buendig
+    row->addWidget(label);
+    auto* box = new QDoubleSpinBox(parent);
+    box->setLocale(QLocale(QLocale::German, QLocale::Germany)); // Komma als Dezimaltrenner
+    box->setRange(0.0, 100.0);
+    box->setDecimals(2);
+    box->setSingleStep(1.0);
+    box->setSuffix(" %");
+    box->setFixedWidth(90);
+    box->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    box->setAlignment(Qt::AlignCenter);
+    row->addWidget(box);
+    if (!info.isEmpty()) {
+        row->addWidget(new InfoButton(info, parent));
+    }
+    row->addStretch();
+    layout->addLayout(row);
+    return box;
+}
+
 QLabel* mutedLabel(const QString& text, QWidget* parent) {
     auto* label = new QLabel(text, parent);
     label->setObjectName("muted");
@@ -194,10 +219,10 @@ QString styleSheet() {
 #modernRoot #segment:checked { background: #2a2350; color: #d6ccff; border-color: #5b47c7; }
 #modernRoot #segment:disabled { color: #5c6274; }
 
-#modernRoot QSpinBox, #modernRoot QLineEdit { background: #13151c; border: 1px solid #3a4052; border-radius: 7px; padding: 4px 8px;
+#modernRoot QSpinBox, #modernRoot QDoubleSpinBox, #modernRoot QLineEdit { background: #13151c; border: 1px solid #3a4052; border-radius: 7px; padding: 4px 8px;
                                               selection-background-color: #7c5cff; min-height: 20px; }
-#modernRoot QSpinBox:focus, #modernRoot QLineEdit:focus { border-color: #7c5cff; }
-#modernRoot QSpinBox:disabled { color: #5c6274; border-color: #2c3140; }
+#modernRoot QSpinBox:focus, #modernRoot QDoubleSpinBox:focus, #modernRoot QLineEdit:focus { border-color: #7c5cff; }
+#modernRoot QSpinBox:disabled, #modernRoot QDoubleSpinBox:disabled { color: #5c6274; border-color: #2c3140; }
 #modernRoot QComboBox { background: #13151c; border: 1px solid #3a4052; border-radius: 7px; padding: 4px 8px; min-height: 20px; }
 #modernRoot QComboBox:hover { border-color: #7c5cff; }
 #modernRoot QComboBox:disabled { color: #5c6274; border-color: #2c3140; }

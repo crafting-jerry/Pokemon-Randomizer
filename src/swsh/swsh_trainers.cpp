@@ -139,10 +139,11 @@ struct Pools {
     QHash<int, QList<Candidate>> byType;
 };
 
-Pools buildPools(const GameFiles& files, bool legendaries) {
+// legendary = false: alle ausser Legendaeren; true: nur Legendaere
+Pools buildPools(const GameFiles& files, bool legendary) {
     Pools pools;
     for (int species = 1; species <= kMaxSpecies; species++) {
-        if (!legendaries && isLegendary(species)) {
+        if (isLegendary(species) != legendary) {
             continue;
         }
         const int baseIndex = files.personal.indexOf(species, 0);
@@ -169,6 +170,13 @@ Pools buildPools(const GameFiles& files, bool legendaries) {
 
 // ------------------------------------------------------------- Einstellungen
 
+double chanceFromJson(const QJsonObject& j, const QString& key, const QString& oldKey, double oldOnValue,
+                      double fallback) {
+    if (j.contains(key)) return qBound(0.0, j[key].toDouble(fallback), 100.0);
+    if (j.contains(oldKey)) return j[oldKey].toBool() ? oldOnValue : 0.0; // Vorlage von vor den Prozentfeldern
+    return fallback;
+}
+
 QJsonObject optionsToJson(const TrainerOptions& o) {
     QJsonObject j;
     j["teamSize"] = o.teamSize;
@@ -177,10 +185,10 @@ QJsonObject optionsToJson(const TrainerOptions& o) {
     j["smartMovesets"] = o.smartMovesets;
     j["smartTMs"] = o.smartTMs;
     j["keepGigantamax"] = o.keepGigantamax;
-    j["legendaries"] = o.legendaries;
+    j["legendaryChance"] = o.legendaryChance;
     j["smartAI"] = o.smartAI;
     j["perfectIVs"] = o.perfectIVs;
-    j["shinies"] = o.shinies;
+    j["shinyChance"] = o.shinyChance;
     return j;
 }
 
@@ -192,10 +200,10 @@ TrainerOptions optionsFromJson(const QJsonObject& j, const TrainerOptions& f) {
     o.smartMovesets = j["smartMovesets"].toBool(f.smartMovesets);
     o.smartTMs = j["smartTMs"].toBool(f.smartTMs);
     o.keepGigantamax = j["keepGigantamax"].toBool(f.keepGigantamax);
-    o.legendaries = j["legendaries"].toBool(f.legendaries);
+    o.legendaryChance = chanceFromJson(j, "legendaryChance", "legendaries", kOldLegendaryChance, f.legendaryChance);
     o.smartAI = j["smartAI"].toBool(f.smartAI);
     o.perfectIVs = j["perfectIVs"].toBool(f.perfectIVs);
-    o.shinies = j["shinies"].toBool(f.shinies);
+    o.shinyChance = chanceFromJson(j, "shinyChance", "shinies", kOldShinyChance, f.shinyChance);
     return o;
 }
 
@@ -363,7 +371,8 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
     TrainerSmartData smart;
     smart.build(files.toGameData());
 
-    Pools pools[2] = {buildPools(files, false), buildPools(files, true)};
+    const Pools normalPool = buildPools(files, false);
+    const Pools legendPool = buildPools(files, true);
     QRandomGenerator master(seed);
 
     for (Trainer& trainer : files.trainers.all()) {
@@ -377,10 +386,8 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
         if (opt == nullptr) {
             continue;
         }
-        const Pools& pool = pools[opt->legendaries ? 1 : 0];
-
         int theme = settings.keepTypeTheme ? trainerTheme(trainer) : -1;
-        if (theme >= 0 && pool.byType.value(theme).isEmpty()) {
+        if (theme >= 0 && normalPool.byType.value(theme).isEmpty()) {
             theme = -1;
         }
 
@@ -446,11 +453,18 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
                 return levelRules && pickFrom(list, false, false, gmaxOnly, out);
             };
 
-            const QList<Candidate>& list = theme >= 0 ? pool.byType[theme] : pool.all;
+            const QList<Candidate> list = theme >= 0 ? normalPool.byType.value(theme) : normalPool.all;
             Candidate pick;
             bool gmax = false;
-            // Gigadynamax-Ass: nur wenn alle Regeln (Typ, Level, keine Duplikate) erfuellbar sind
-            if (wantsGmax && pickFrom(list, levelRules, true, true, pick)) {
+            // Legendaere mit der eingestellten Chance (Gigadynamax-Asse ausgenommen). Gibt es kein passendes
+            // Legendaeres (Typ, Level, schon im Team), wird ein normales Pokemon gewaehlt.
+            const bool legend = !wantsGmax && rollPercent(rng, opt->legendaryChance);
+            const QList<Candidate> legendList = theme >= 0 ? legendPool.byType.value(theme) : legendPool.all;
+            if (legend && (pickFrom(legendList, levelRules, true, false, pick) ||
+                           (levelRules && pickFrom(legendList, false, true, false, pick)))) {
+                // Legendaeres gewaehlt
+            } else if (wantsGmax && pickFrom(list, levelRules, true, true, pick)) {
+                // Gigadynamax-Ass: nur wenn alle Regeln (Typ, Level, keine Duplikate) erfuellbar sind
                 gmax = true;
             } else if (!pickWithFallback(list, false, pick)) {
                 continue; // sollte nie passieren
@@ -495,8 +509,8 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
             if (opt->perfectIVs) {
                 poke.setPerfectIVs();
             }
-            if (opt->shinies && !poke.shiny()) {
-                poke.setShiny(rng.bounded(100) < 50);
+            if (!poke.shiny() && rollPercent(rng, opt->shinyChance)) {
+                poke.setShiny(true);
             }
         }
 
