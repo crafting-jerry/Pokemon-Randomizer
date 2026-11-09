@@ -440,7 +440,7 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                     // Set moves
                     QStringList smartMoves;
                     if(trainer.smartMovesets == true && smartData.isReady()){
-                        smartMoves = smartData.buildMoveset(pokemon, form, level, trainer.smartMovesTMs, randGen);
+                        smartMoves = smartData.improveMoveset(pokemon, form, level, trainer.smartMovesTMs, randGen);
                     }
 
                     if(!smartMoves.isEmpty()){

@@ -25,8 +25,10 @@ const QString kInfoLevelEvos =
     "Pokémon tauchen erst auf, wenn sie auf diesem Level schon entwickelt sein könnten (z. B. kein Garados vor Level 20). "
     "Bei Entwicklungen per Item, Freundschaft oder Tausch wird ein sinnvolles Level geschätzt.";
 const QString kInfoSmartMoves =
-    "Statt der letzten vier gelernten Attacken bekommt jedes Pokémon die stärksten passenden Attacken – "
-    "inklusive Attacken der Vorentwicklungen, mit Typ-Bonus, Typ-Abdeckung und einer nützlichen Statusattacke.";
+    "Pokémon behalten ihre normalen Attacken (die letzten vier gelernten), solange diese für ihr Level stark "
+    "genug sind. Ist das Moveset zu schwach (z. B. Roserade mit Absorber in der Liga), werden nur die schwachen "
+    "Attacken durch stärkere ersetzt, die zum Level passen – inklusive Attacken der Vorentwicklungen, mit "
+    "Typ-Bonus und Typ-Abdeckung.";
 const QString kInfoSmartTMs =
     "Starke Movesets dürfen auch Attacken enthalten, die das Pokémon nur per TM lernen kann.";
 const QString kInfoAllowTera =

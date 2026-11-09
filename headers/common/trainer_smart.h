@@ -49,6 +49,16 @@ public:
     // Wie buildMovesetIds, aber als WAZA_-Namen (nur Karmesin/Purpur). Leer = Spiel-Standard verwenden.
     QStringList buildMoveset(int natdex, int form, int level, bool includeTMs, QRandomGenerator& rng) const;
 
+    // Option "Starke Movesets" fuer normale Trainer: Das Spiel-Moveset (letzte 4 gelernte Attacken) bleibt,
+    // solange es fuer das Level stark genug ist. Ist es zu schwach (z. B. Roserade mit Absorber auf Level 60),
+    // werden nur die schwachen Plaetze durch level-passende Attacken ersetzt.
+    // Leer = Spiel-Standard verwenden.
+    QList<int> improveMovesetIds(int natdex, int form, int level, bool includeTMs, QRandomGenerator& rng) const;
+    QStringList improveMoveset(int natdex, int form, int level, bool includeTMs, QRandomGenerator& rng) const;
+
+    // Richtwert: Staerke, die die beste Schadensattacke auf diesem Level mindestens haben sollte
+    static int expectedPower(int level);
+
     bool isReady() const { return ready; }
 
     // Typen einer Form (fuer das Spoiler-Log). first = Typ 1, second = Typ 2
@@ -82,6 +92,8 @@ private:
     static qint64 key(int natdex, int form) { return static_cast<qint64>(natdex) * 1000 + form; }
     int computeMinLevel(qint64 k, QSet<qint64>& visiting);
     void collectMovePool(qint64 k, int level, bool includeTMs, QSet<int>& pool, QSet<qint64>& visited) const;
+    double moveStrength(int moveId) const;   // Staerke * Treffer, 0 bei Statusattacken
+    double moveScore(int moveId, const PokeInfo& self) const; // Bewertung fuer dieses Pokemon (ohne Zufall)
 
     bool ready = false;
     QHash<qint64, int> stage;                 // Entwicklungsstufe laut Spiel

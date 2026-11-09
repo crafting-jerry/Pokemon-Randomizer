@@ -316,7 +316,7 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
             if (kSpeciesItems.contains(mon.item)) mon.item = 0;
 
             QList<int> moveset;
-            if (opt->smartMovesets) moveset = smart.buildMovesetIds(pick.species, pick.form, level, opt->smartTMs, rng);
+            if (opt->smartMovesets) moveset = smart.improveMovesetIds(pick.species, pick.form, level, opt->smartTMs, rng);
             if (moveset.isEmpty()) moveset = smart.defaultMoveset(pick.species, pick.form, level);
             for (int k = 0; k < 4; k++) mon.moves[k] = k < moveset.size() ? moveset[k] : 0;
 

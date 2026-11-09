@@ -340,6 +340,176 @@ QList<int> TrainerSmartData::buildMovesetIds(int natdex, int form, int level, bo
     return result;
 }
 
+int TrainerSmartData::expectedPower(int level) {
+    // Level 10: 40, Level 30: 60, Level 50: 80, ab Level 60: 90
+    return std::min(90, std::max(40, 30 + level));
+}
+
+double TrainerSmartData::moveStrength(int moveId) const {
+    if (!moves.contains(moveId)) {
+        return 0.0;
+    }
+    const MoveInfo& m = moves[moveId];
+    return m.damaging ? m.power * m.avgHits : 0.0;
+}
+
+double TrainerSmartData::moveScore(int moveId, const PokeInfo& self) const {
+    const MoveInfo& m = moves[moveId];
+    double score = m.power * m.avgHits * (m.accuracy / 100.0);
+    if (hasType(self.type1, self.type2, m.type)) {
+        score *= 1.5; // Typ-Bonus
+    }
+    if (m.category == 1 && self.atk < self.spa * 0.8) {
+        score *= 0.6; // physische Attacke auf speziellem Pokemon
+    } else if (m.category == 2 && self.spa < self.atk * 0.8) {
+        score *= 0.6; // spezielle Attacke auf physischem Pokemon
+    }
+    return score;
+}
+
+QList<int> TrainerSmartData::improveMovesetIds(int natdex, int form, int level, bool includeTMs, QRandomGenerator& rng) const {
+    QList<int> result;
+    if (!ready) {
+        return result;
+    }
+
+    const QList<int> base = defaultMoveset(natdex, form, level);
+    const int needed = expectedPower(level);
+
+    // 1. Ist das Spiel-Moveset stark genug? Dann bleibt es unveraendert.
+    double best = 0.0;
+    for (int id : base) {
+        best = std::max(best, moveStrength(id));
+    }
+    if (!base.isEmpty() && best >= needed) {
+        return result;
+    }
+
+    qint64 k = key(natdex, form);
+    PokeInfo self = pokeInfo.value(k, pokeInfo.value(key(natdex, 0)));
+    bool physicalMon = self.atk >= self.spa;
+
+    // 2. Schwache Plaetze bestimmen. Es bleiben: Schadensattacken mit mindestens 75 % des Richtwerts
+    //    und hoechstens eine nuetzliche Statusattacke. Alles andere (z. B. Absorber, Heuler) wird ersetzt.
+    QList<int> moveSlots = base;
+    while (moveSlots.size() < 4) {
+        moveSlots.append(0); // leere Plaetze (Pokemon kennt weniger als 4 Attacken)
+    }
+    QList<int> weakSlots;
+    bool keptStatus = false;
+    QSet<int> usedTypes;
+    for (int i = 0; i < moveSlots.size(); i++) {
+        int id = moveSlots[i];
+        if (id == 0 || !moves.contains(id)) {
+            weakSlots.append(i);
+            continue;
+        }
+        const MoveInfo& m = moves[id];
+        if (m.damaging) {
+            if (moveStrength(id) >= needed * 0.75) {
+                usedTypes.insert(m.type);
+            } else {
+                weakSlots.append(i);
+            }
+            continue;
+        }
+        bool useful = m.statusRole == 3 || (m.statusRole == 1 && physicalMon) || (m.statusRole == 2 && !physicalMon);
+        if (useful && !keptStatus) {
+            keptStatus = true;
+        } else {
+            weakSlots.append(i);
+        }
+    }
+    if (weakSlots.isEmpty()) {
+        // Alle Schadensattacken knapp unter dem Richtwert: die schwaechste wird trotzdem ersetzt
+        int weakest = -1;
+        for (int i = 0; i < moveSlots.size(); i++) {
+            if (moveStrength(moveSlots[i]) > 0 && (weakest < 0 || moveStrength(moveSlots[i]) < moveStrength(moveSlots[weakest]))) {
+                weakest = i;
+            }
+        }
+        if (weakest < 0) {
+            return result;
+        }
+        weakSlots.append(weakest);
+        usedTypes.remove(moves.value(moveSlots[weakest]).type);
+    }
+    // Schwaechste Plaetze zuerst ersetzen (leere Plaetze zaehlen als 0)
+    std::stable_sort(weakSlots.begin(), weakSlots.end(), [&](int a, int b) {
+        return moveStrength(moveSlots[a]) < moveStrength(moveSlots[b]);
+    });
+
+    // 3. Kandidaten: Level-Up-Attacken bis zum Level (inkl. Vorentwicklungen), optional TMs.
+    //    Die Staerkegrenze gilt hier fuer alle Attacken, damit nichts Unpassendes fuers Level dazukommt.
+    QSet<int> pool;
+    QSet<qint64> visited;
+    collectMovePool(k, level, includeTMs, pool, visited);
+    const int maxPower = 40 + 2 * level;
+
+    struct Scored { int id; int type; double strength; double score; };
+    QList<Scored> candidates;
+    // Feste Reihenfolge: QSet ist je nach Programmstart anders sortiert (sonst ergibt derselbe Seed andere Movesets)
+    QList<int> poolSorted(pool.begin(), pool.end());
+    std::sort(poolSorted.begin(), poolSorted.end());
+    for (int id : poolSorted) {
+        if (!moves.contains(id) || moveSlots.contains(id)) {
+            continue;
+        }
+        const MoveInfo& m = moves[id];
+        if (!m.damaging || m.power > maxPower) {
+            continue;
+        }
+        double score = moveScore(id, self) * (0.9 + rng.generateDouble() * 0.2); // etwas Abwechslung
+        candidates.append({id, m.type, moveStrength(id), score});
+    }
+
+    // 4. Jeden schwachen Platz mit der besten noch freien Attacke fuellen (gleiche Typen abgewertet).
+    //    Bringt der Ersatz keine Verbesserung, bleibt die alte Attacke stehen.
+    bool changed = false;
+    for (int slot : weakSlots) {
+        int bestIndex = -1;
+        double bestScore = -1;
+        for (int i = 0; i < candidates.size(); i++) {
+            double s = candidates[i].score * (usedTypes.contains(candidates[i].type) ? 0.5 : 1.0);
+            if (s > bestScore) {
+                bestScore = s;
+                bestIndex = i;
+            }
+        }
+        if (bestIndex < 0) {
+            break;
+        }
+        int old = moveSlots[slot];
+        bool oldUsefulStatus = old != 0 && moveStrength(old) == 0.0 && moves.value(old).statusRole != 0;
+        if (old != 0 && !oldUsefulStatus && candidates[bestIndex].strength <= moveStrength(old)) {
+            continue;
+        }
+        moveSlots[slot] = candidates[bestIndex].id;
+        usedTypes.insert(candidates[bestIndex].type);
+        candidates.removeAt(bestIndex);
+        changed = true;
+    }
+    if (!changed) {
+        return result;
+    }
+
+    // Leere Plaetze ans Ende, Reihenfolge sonst wie im Spiel-Moveset
+    for (int id : moveSlots) {
+        if (id != 0) {
+            result.append(id);
+        }
+    }
+    return result;
+}
+
+QStringList TrainerSmartData::improveMoveset(int natdex, int form, int level, bool includeTMs, QRandomGenerator& rng) const {
+    QStringList result;
+    for (int id : improveMovesetIds(natdex, form, level, includeTMs, rng)) {
+        result.append(QString::fromStdString(moves.value(id).devName));
+    }
+    return result;
+}
+
 QStringList TrainerSmartData::buildMoveset(int natdex, int form, int level, bool includeTMs, QRandomGenerator& rng) const {
     QStringList result;
     for (int id : buildMovesetIds(natdex, form, level, includeTMs, rng)) {

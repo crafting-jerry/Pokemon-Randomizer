@@ -497,7 +497,7 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
             // Attacken
             QList<int> moveset;
             if (opt->smartMovesets) {
-                moveset = smart.buildMovesetIds(pick.species, pick.form, level, opt->smartTMs, rng);
+                moveset = smart.improveMovesetIds(pick.species, pick.form, level, opt->smartTMs, rng);
             }
             if (moveset.isEmpty()) {
                 moveset = smart.defaultMoveset(pick.species, pick.form, level);
