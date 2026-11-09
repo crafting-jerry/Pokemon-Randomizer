@@ -115,6 +115,7 @@ class sharedRandomizerClass{
             bool smartMovesets = false;     // starke Movesets statt Spiel-Standard
             bool smartMovesTMs = false;     // TM-Attacken fuer Movesets erlauben
             bool keepOriginal = false;      // Gruppe bleibt original (wird auch von "Alle" nicht veraendert)
+            int competitiveLevel = 0;       // Competitive-Modus ab diesem Level (hoechstes Level im Team, 0 = aus)
 
             allowedPokemonLimiter allowedPokemons;
         };

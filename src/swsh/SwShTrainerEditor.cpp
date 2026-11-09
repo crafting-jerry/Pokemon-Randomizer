@@ -44,6 +44,16 @@ const QString kInfoPerfectIVs =
 const QString kInfoShinies =
     "Chance für jedes Trainer-Pokémon, schillernd zu sein. 0 % = nie (bis auf Pokémon, die schon im Original "
     "schillern), 100 % = alle. Dezimalwerte wie 0,5 % sind möglich.";
+const QString kInfoCompetitive =
+    "Trainer, deren höchstes Pokémon mindestens dieses Level hat, bekommen ein Competitive-Team (das ganze Team):\n"
+    "• Attacken ohne Level-Grenze aus allen Level- und TM-Attacken: starke Angriffe mit Typ-Bonus und guter "
+    "Typ-Abdeckung, dazu je nach Pokémon Setup-, Heil- oder Statusattacken. In Doppelkämpfen auch Schutzschild, "
+    "Mogelhieb und Rückenwind.\n"
+    "• Ein passendes Item (z. B. Wahlband, Leben-Orb, Überreste, Fokusgurt) – jedes Item nur einmal pro Team.\n"
+    "• Die beste Fähigkeit (auch versteckte Fähigkeiten), passendes Wesen, Fleißpunkte (252/252/4) und perfekte DVs.\n"
+    "• Die stärkste Kampf-KI des Spiels wird automatisch eingeschaltet.\n"
+    "Ersetzt für diese Trainer die Option „Starke Movesets“. Wie die KI kämpft, legt das Spiel selbst fest – "
+    "getragene Items wirken im Kampf aber immer.";
 } // namespace
 
 SwShTrainerEditor::SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* parent, bool galar)
@@ -122,6 +132,35 @@ SwShTrainerEditor::SwShTrainerEditor(swsh::TrainerOptions* options, QWidget* par
         });
     }
 
+    // Competitive-Modus ab Level
+    {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(6);
+        competitive = new QCheckBox("Competitive-Modus ab Level", this);
+        competitiveLevel = new QSpinBox(this);
+        competitiveLevel->setRange(1, 100);
+        competitiveLevel->setValue(50);
+        competitiveLevel->setFixedWidth(60);
+        competitiveLevel->setButtonSymbols(QAbstractSpinBox::NoButtons);
+        competitiveLevel->setAlignment(Qt::AlignCenter);
+        row->addWidget(competitive);
+        row->addWidget(competitiveLevel);
+        row->addWidget(new InfoButton(kInfoCompetitive, this));
+        row->addStretch();
+        layout->addLayout(row);
+        connect(competitive, &QCheckBox::toggled, this, [this](bool checked) {
+            o->competitiveLevel = checked ? competitiveLevel->value() : 0;
+            updateEnabledStates();
+            emit changed();
+        });
+        connect(competitiveLevel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int value) {
+            if (competitive->isChecked()) {
+                o->competitiveLevel = value;
+                emit changed();
+            }
+        });
+    }
+
     if (galar) {
         gigantamax = addCheck(layout, "Gigadynamax-Asse behalten", kInfoGigantamax, &o->keepGigantamax);
     } else {
@@ -160,6 +199,7 @@ QCheckBox* SwShTrainerEditor::addCheck(QVBoxLayout* layout, const QString& text,
 void SwShTrainerEditor::updateEnabledStates() {
     fullyEvolvedLevel->setEnabled(fullyEvolved->isChecked());
     smartTMs->setEnabled(smartMoves->isChecked());
+    competitiveLevel->setEnabled(competitive->isChecked());
 }
 
 void SwShTrainerEditor::refresh() {
@@ -175,6 +215,10 @@ void SwShTrainerEditor::refresh() {
     levelEvos->setChecked(o->levelAppropriateEvos);
     smartMoves->setChecked(o->smartMovesets);
     smartTMs->setChecked(o->smartTMs);
+    competitive->setChecked(o->competitiveLevel > 0);
+    if (o->competitiveLevel > 0) {
+        competitiveLevel->setValue(o->competitiveLevel);
+    }
     gigantamax->setChecked(o->keepGigantamax);
     legendaries->setValue(o->legendaryChance);
     smartAI->setChecked(o->smartAI);

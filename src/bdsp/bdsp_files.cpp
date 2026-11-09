@@ -649,8 +649,13 @@ GameData GameFiles::toGameData() const {
         stats.form = sf.second;
         stats.type1 = personal.type1(index);
         stats.type2 = personal.type2(index);
+        stats.hp = personal.stat(index, 0);
         stats.atk = personal.stat(index, 1);
+        stats.def = personal.stat(index, 2);
+        stats.spe = personal.stat(index, 3);
         stats.spa = personal.stat(index, 4);
+        stats.spd = personal.stat(index, 5);
+        for (int a = 0; a < 3; a++) stats.abilities[a] = personal.ability(index, a);
         stats.levelMoves = learnsets.get(index);
         for (auto it = tmMoves.constBegin(); it != tmMoves.constEnd(); ++it) {
             if (personal.canLearnTM(index, it.key())) stats.tmMoves.append(it.value());

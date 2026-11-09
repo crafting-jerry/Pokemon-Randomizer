@@ -37,8 +37,15 @@ GameData svGameData(const json& mapping, const json& personal, const json& wazaT
         s.form = form;
         s.type1 = entry.value("type_1", 0);
         s.type2 = entry.value("type_2", s.type1);
+        s.hp = entry["base_stats"].value("hp", 0);
         s.atk = entry["base_stats"].value("atk", 0);
+        s.def = entry["base_stats"].value("def", 0);
         s.spa = entry["base_stats"].value("spa", 0);
+        s.spd = entry["base_stats"].value("spd", 0);
+        s.spe = entry["base_stats"].value("spe", 0);
+        s.abilities[0] = entry.value("ability_1", 0);
+        s.abilities[1] = entry.value("ability_2", 0);
+        s.abilities[2] = entry.value("ability_hidden", 0);
         for (const json& lm : entry["levelup_moves"]) {
             s.levelMoves.append(qMakePair(int(lm["move"]), int(lm["level"])));
         }

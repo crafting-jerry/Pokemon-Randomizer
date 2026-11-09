@@ -297,6 +297,9 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
 
                 // Keine Duplikate: bereits im Team verwendete Arten
                 QSet<int> usedSpecies;
+                // Neu gewaehlte Pokemon je Platz (fuer den Competitive-Modus): Platz, Art, Form
+                struct PickedSlot { std::string key; int pokemon; int form; };
+                QList<PickedSlot> pickedSlots;
 
                 // Randomize the Pokemon
                 for(int i=1; i<=maxChanges; i++){
@@ -372,6 +375,7 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                     const int form = pick.second;
 
                     usedSpecies.insert(pokemon);
+                    pickedSlots.append({key, pokemon, form});
 
                     std::string genderStd = "MALE";
                     QString form_Check = QString::fromUtf8(localMapping["pokemons"][pokemon]["name"].get<std::string>().c_str());
@@ -465,6 +469,66 @@ void svTrainers::randomizeTrainers(trainerSettings trainer){
                     }
                 }
 
+                // --- Competitive-Modus: gilt fuer das ganze Team, sobald das hoechste Level die Schwelle erreicht ---
+                int finalMaxLevel = 1;
+                for(int k = 1; k <= 6; k++){
+                    const json& slot = entry["poke"+std::to_string(k)];
+                    if(slot.value("devId", std::string("DEV_NULL")) != "DEV_NULL"){
+                        finalMaxLevel = std::max(finalMaxLevel, int(slot["level"]));
+                    }
+                }
+                const bool competitive = smartData.isReady() && competitiveActive(trainer.competitiveLevel, finalMaxLevel);
+                if(competitive){
+                    static const char* const kNatures[25] = {
+                        "GANBARIYA", "SAMISIGARIYA", "YUUKAN", "IJIPPARI", "YANTYA", "ZUBUTOI", "SUNAO", "NONKI",
+                        "WANPAKU", "NOUTENKI", "OKUBYOU", "SEKKATI", "MAJIME", "YOUKI", "MUJYAKI", "HIKAEME",
+                        "OTTORI", "REISEI", "TEREYA", "UKKARIYA", "ODAYAKA", "OTONASII", "NAMAIKI", "SINNTYOU",
+                        "KIMAGURE"};
+                    static const char* const kEvKeys[6] = {"hp", "atk", "def", "spAtk", "spDef", "agi"};
+                    // Formen, die ihr Item brauchen (Giratina Urform, Arceus, Zacian/Zamazenta, Ogerpon-Masken ...)
+                    static const QSet<int> kFormItemSpecies = {483, 484, 487, 493, 888, 889, 1017};
+                    const bool doubles = entry["battleType"] == "_2vs2";
+                    QSet<int> usedItems;
+                    for(const PickedSlot& p : pickedSlots){
+                        const CompetitiveSet set = smartData.buildCompetitiveSet(p.pokemon, p.form, doubles, 9,
+                                                                                 usedItems, randGen);
+                        if(!set.valid){
+                            continue;
+                        }
+                        json& poke = entry[p.key];
+                        poke["wazaType"] = "MANUAL";
+                        for(int k = 1; k <= 4; k++){
+                            std::string moveKey = "waza"+std::to_string(k);
+                            std::string dev = k <= set.moves.size() ? smartData.moveDevName(set.moves[k-1]).toStdString()
+                                                                    : std::string();
+                            poke[moveKey]["wazaId"] = dev.empty() ? std::string("WAZA_NULL") : dev;
+                            poke[moveKey]["pointUp"] = 0;
+                        }
+                        const std::string formItem = getPokemonItemId(p.pokemon, p.form);
+                        if(!(kFormItemSpecies.contains(p.pokemon) && formItem != "ITEMID_NONE")){
+                            poke["item"] = set.item > 0 ? itemDevNames.value(set.item, std::string("ITEMID_NONE"))
+                                                        : std::string("ITEMID_NONE");
+                        }
+                        poke["tokusei"] = "SET_" + std::to_string(set.abilitySlot + 1);
+                        poke["seikaku"] = kNatures[qBound(0, set.nature, 24)];
+                        for(int k = 0; k < 6; k++){
+                            poke["effortValue"][kEvKeys[k]] = set.evs[k];
+                        }
+                        poke["talentType"] = "VALUE";
+                        for(int k = 0; k < 6; k++){
+                            poke["talentValue"][kEvKeys[k]] = 31;
+                        }
+                    }
+                }
+                if(competitive){
+                    // Beste KI wie bei "Kluge KI"
+                    entry["aiWeak"] = false;
+                    entry["aiBasic"] = false;
+                    entry["aiHigh"] = false;
+                    entry["aiExpert"] = true;
+                    entry["aiItem"] = true;
+                    entry["aiChange"] = true;
+                }
             }
 
         });
@@ -484,6 +548,13 @@ void svTrainers::randomize(bool paldea, bool kitakami, bool blueberry, bool boss
     smartData.build(svGameData(pokemonMapping,
                                personalOverride != nullptr ? *personalOverride : pokemonPersonalData,
                                wazaTable, moveNames));
+    itemDevNames.clear();
+    {
+        const json itemDevs = readJsonQFile("SV_FLATBUFFERS/SV_ITEMS/pokemon_items_dev.json");
+        for(const json& item : itemDevs["items"]){
+            itemDevNames[item.value("id", 0)] = item.value("devName", std::string("ITEMID_NONE"));
+        }
+    }
     for(unsigned long long i =0; i<trainersData["values"].size(); i++){
         int threadSeed = randNum.generate();
         while(seeds.contains(threadSeed)){

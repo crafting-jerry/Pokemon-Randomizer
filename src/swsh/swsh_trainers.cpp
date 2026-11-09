@@ -189,6 +189,7 @@ QJsonObject optionsToJson(const TrainerOptions& o) {
     j["smartAI"] = o.smartAI;
     j["perfectIVs"] = o.perfectIVs;
     j["shinyChance"] = o.shinyChance;
+    j["competitiveLevel"] = o.competitiveLevel;
     return j;
 }
 
@@ -204,6 +205,7 @@ TrainerOptions optionsFromJson(const QJsonObject& j, const TrainerOptions& f) {
     o.smartAI = j["smartAI"].toBool(f.smartAI);
     o.perfectIVs = j["perfectIVs"].toBool(f.perfectIVs);
     o.shinyChance = chanceFromJson(j, "shinyChance", "shinies", kOldShinyChance, f.shinyChance);
+    o.competitiveLevel = qBound(0, j["competitiveLevel"].toInt(f.competitiveLevel), 100);
     return o;
 }
 
@@ -514,7 +516,35 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
             }
         }
 
-        if (opt->smartAI) {
+        // --- Competitive-Modus: gilt fuer das ganze Team, sobald das hoechste Level die Schwelle erreicht ---
+        int finalMaxLevel = 1;
+        for (const TrainerPoke& p : trainer.team) {
+            finalMaxLevel = qMax(finalMaxLevel, p.level());
+        }
+        const bool competitive = competitiveActive(opt->competitiveLevel, finalMaxLevel);
+        if (competitive) {
+            const bool doubles = trainer.battleMode() == 1 || kMultiBattleTrainers.contains(trainer.index);
+            QSet<int> usedItems;
+            for (TrainerPoke& poke : trainer.team) {
+                const CompetitiveSet set = smart.buildCompetitiveSet(poke.species(), poke.form(), doubles, 8,
+                                                                     usedItems, rng);
+                if (!set.valid) {
+                    continue;
+                }
+                for (int slot = 0; slot < 4; slot++) {
+                    poke.setMove(slot, slot < set.moves.size() ? set.moves[slot] : 0);
+                }
+                poke.setHeldItem(set.item);
+                poke.setAbility(set.abilitySlot + 1); // 1, 2, 3 = versteckt
+                poke.raw[0x01] = static_cast<char>(set.nature);
+                for (int i = 0; i < 6; i++) {
+                    poke.raw[0x02 + i] = static_cast<char>(set.evs[i]); // KP, Ang, Vert, SpAng, SpVert, Init
+                }
+                poke.setPerfectIVs();
+            }
+        }
+
+        if (opt->smartAI || competitive) {
             trainer.setAi(trainer.ai() | 0x47); // Basis, Stark, Experte, Wechseln
         }
 

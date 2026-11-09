@@ -34,6 +34,8 @@ private:
     QCheckBox* levelEvos = nullptr;
     QCheckBox* smartMoves = nullptr;
     QCheckBox* smartTMs = nullptr;
+    QCheckBox* competitive = nullptr;
+    QSpinBox* competitiveLevel = nullptr;
     QCheckBox* gigantamax = nullptr;
     QDoubleSpinBox* legendaries = nullptr;
     QCheckBox* smartAI = nullptr;

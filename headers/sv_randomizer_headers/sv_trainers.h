@@ -23,6 +23,8 @@ class svTrainers: public QObject, public SVShared{
         TrainerSmartData smartData;
         // Zeigt auf randomisierte Personal-Daten, falls diese vorher veraendert wurden
         json* personalOverride = nullptr;
+        // Nationale Item-ID -> ITEMID_-Name (Competitive-Modus)
+        QHash<int, std::string> itemDevNames;
 
         // --- Gruppen, die original bleiben sollen ---
         QSet<int> keepOriginalIndexes;

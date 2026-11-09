@@ -326,7 +326,30 @@ TrainerRandomizerResult randomizeTrainers(GameFiles& files, const TrainerSetting
             if (!mon.shiny && rollPercent(rng, opt->shinyChance)) mon.shiny = true;
         }
 
-        if (opt->smartAI) trainer.aiBit |= 111; // wie Arenaleiter, Top Vier und Champ
+        // --- Competitive-Modus: gilt fuer das ganze Team, sobald das hoechste Level die Schwelle erreicht ---
+        int finalMaxLevel = 1;
+        for (const TrainerMon& m : trainer.team) finalMaxLevel = qMax(finalMaxLevel, m.level);
+        const bool competitive = competitiveActive(opt->competitiveLevel, finalMaxLevel);
+        if (competitive) {
+            const bool doubles = trainer.fightType == 1 || kMultiBattleTrainers.contains(trainer.index);
+            QSet<int> usedItems;
+            for (TrainerMon& mon : trainer.team) {
+                const CompetitiveSet set = smart.buildCompetitiveSet(mon.species, mon.form, doubles, 4, usedItems, rng);
+                if (!set.valid) continue;
+                for (int k = 0; k < 4; k++) mon.moves[k] = k < set.moves.size() ? set.moves[k] : 0;
+                mon.item = set.item;
+                const int index = files.personal.indexOf(mon.species, mon.form);
+                const int ability = index > 0 ? files.personal.ability(index, set.abilitySlot) : 0;
+                if (ability > 0) mon.ability = ability;
+                mon.nature = set.nature;
+                // Reihenfolge in BDSP: KP, Ang, Vert, Init, SpAng, SpVert
+                const int order[6] = {0, 1, 2, 4, 5, 3}; // set.evs-Index -> mon.evs-Index
+                for (int i = 0; i < 6; i++) mon.evs[order[i]] = set.evs[i];
+                for (int& iv : mon.ivs) iv = 31;
+            }
+        }
+
+        if (opt->smartAI || competitive) trainer.aiBit |= 111; // wie Arenaleiter, Top Vier und Champ
         trainer.changed = true;
         result.randomized++;
     }

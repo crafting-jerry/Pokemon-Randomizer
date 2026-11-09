@@ -31,6 +31,21 @@ inline bool rollPercent(QRandomGenerator& rng, double percent) {
     return rng.generateDouble() * 100.0 < percent;
 }
 
+// Competitive-Set fuer ein Trainer-Pokemon (Option "Competitive-Modus")
+struct CompetitiveSet {
+    bool valid = false;
+    QList<int> moves;            // bis zu 4 Attacken-IDs
+    int item = 0;                // nationale Item-ID (0 = keins)
+    int abilitySlot = 0;         // 0 = Faehigkeit 1, 1 = Faehigkeit 2, 2 = versteckte Faehigkeit
+    int nature = 0;              // 0..24 in Spielreihenfolge (Robust, Solo, Mutig, Hart ...)
+    int evs[6] = {0, 0, 0, 0, 0, 0}; // KP, Angriff, Verteidigung, Sp.-Angriff, Sp.-Verteidigung, Initiative
+};
+
+// Competitive-Modus gilt fuer das ganze Team, sobald das hoechste Level im Team die Schwelle erreicht
+inline bool competitiveActive(int fromLevel, int teamMaxLevel) {
+    return fromLevel > 0 && teamMaxLevel >= fromLevel;
+}
+
 class TrainerSmartData {
 public:
     // Baut alle Tabellen aus dem spielneutralen Datenmodell auf
@@ -59,6 +74,15 @@ public:
     // Richtwert: Staerke, die die beste Schadensattacke auf diesem Level mindestens haben sollte
     static int expectedPower(int level);
 
+    // Competitive-Modus: bestes Set ohne Level-Grenze (alle Level-Up- und TM-Attacken), passendes Item,
+    // beste Faehigkeit, Wesen und Fleisspunkte. itemGeneration: 4 (BDSP), 8 (SwSh), 9 (SV) - nur Items, die es
+    // im Spiel gibt. usedItems: Items, die im Team schon vergeben sind (jedes Item nur einmal pro Team);
+    // das gewaehlte Item wird eingetragen.
+    CompetitiveSet buildCompetitiveSet(int natdex, int form, bool doubles, int itemGeneration,
+                                       QSet<int>& usedItems, QRandomGenerator& rng) const;
+    // WAZA_-Name einer Attacke (nur Karmesin/Purpur)
+    QString moveDevName(int moveId) const;
+
     bool isReady() const { return ready; }
 
     // Typen einer Form (fuer das Spoiler-Log). first = Typ 1, second = Typ 2
@@ -75,6 +99,8 @@ private:
         int power = 0;
         int accuracy = 100;
         double avgHits = 1.0;
+        int priority = 0;
+        bool usable = false;     // im Spiel verwendbar
         bool damaging = false;   // brauchbare Schadensattacke
         int statusRole = 0;      // 0 = keine gute Statusattacke, 1 = physisches Setup, 2 = spezielles Setup, 3 = allgemein nuetzlich
         std::string devName;
@@ -83,8 +109,13 @@ private:
     struct PokeInfo {
         int type1 = 0;
         int type2 = 0;
+        int hp = 0;
         int atk = 0;
+        int def = 0;
         int spa = 0;
+        int spd = 0;
+        int spe = 0;
+        int abilities[3] = {0, 0, 0};
         QList<QPair<int,int>> levelMoves; // (moveId, level) ; level 0 oder >= 250 = beim Entwickeln
         QList<int> tmMoves;
     };
@@ -94,6 +125,7 @@ private:
     void collectMovePool(qint64 k, int level, bool includeTMs, QSet<int>& pool, QSet<qint64>& visited) const;
     double moveStrength(int moveId) const;   // Staerke * Treffer, 0 bei Statusattacken
     double moveScore(int moveId, const PokeInfo& self) const; // Bewertung fuer dieses Pokemon (ohne Zufall)
+    void collectCompetitivePool(qint64 k, bool withTMs, QSet<int>& pool, QSet<qint64>& visited) const;
 
     bool ready = false;
     QHash<qint64, int> stage;                 // Entwicklungsstufe laut Spiel

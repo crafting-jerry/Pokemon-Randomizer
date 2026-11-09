@@ -35,6 +35,7 @@ struct TrainerOptions {
     bool smartAI = false;
     bool perfectIVs = false;
     double shinyChance = 0.0;     // Chance in Prozent je Pokemon: schillernd
+    int competitiveLevel = 0;     // Competitive-Modus ab diesem Level (hoechstes Level im Team, 0 = aus)
 };
 
 // Alte Vorlagen hatten Schalter statt Prozentwerten: "an" wird zu diesen Werten

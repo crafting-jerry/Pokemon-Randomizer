@@ -48,6 +48,16 @@ const QString kInfoLegendaries =
     "legst du unten bei „Legendäre aus Gen.“ fest. Passt kein Legendäres (Typ, Level oder schon im Team), wird "
     "ein normales Pokémon gewählt.";
 
+const QString kInfoCompetitive =
+    "Trainer, deren höchstes Pokémon mindestens dieses Level hat, bekommen ein Competitive-Team (das ganze Team):\n"
+    "• Attacken ohne Level-Grenze aus allen Level- und TM-Attacken: starke Angriffe mit Typ-Bonus und guter "
+    "Typ-Abdeckung, dazu je nach Pokémon Setup-, Heil- oder Statusattacken. In Doppelkämpfen auch Schutzschild, "
+    "Mogelhieb und Rückenwind.\n"
+    "• Ein passendes Item (z. B. Wahlband, Leben-Orb, Überreste, Fokusgurt) – jedes Item nur einmal pro Team.\n"
+    "• Die beste Fähigkeit (auch versteckte Fähigkeiten), passendes Wesen, Fleißpunkte (252/252/4) und perfekte DVs.\n"
+    "• Die stärkste Kampf-KI des Spiels wird automatisch eingeschaltet.\n"
+    "Ersetzt für diese Trainer die Option „Starke Movesets“. Wie die KI kämpft, legt das Spiel selbst fest – "
+    "getragene Items wirken im Kampf aber immer.";
 } // namespace
 
 TrainerSettingsEditor::TrainerSettingsEditor(trainerSettings* settings, QWidget* parent)
@@ -143,6 +153,35 @@ TrainerSettingsEditor::TrainerSettingsEditor(trainerSettings* settings, QWidget*
         });
     }
 
+    // Competitive-Modus ab Level
+    {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(6);
+        competitive = new QCheckBox("Competitive-Modus ab Level", this);
+        competitiveLevel = new QSpinBox(this);
+        competitiveLevel->setRange(1, 100);
+        competitiveLevel->setValue(50);
+        competitiveLevel->setFixedWidth(60);
+        competitiveLevel->setButtonSymbols(QAbstractSpinBox::NoButtons);
+        competitiveLevel->setAlignment(Qt::AlignCenter);
+        row->addWidget(competitive);
+        row->addWidget(competitiveLevel);
+        row->addWidget(new InfoButton(kInfoCompetitive, this));
+        row->addStretch();
+        layout->addLayout(row);
+        connect(competitive, &QCheckBox::toggled, this, [this](bool checked) {
+            s->competitiveLevel = checked ? competitiveLevel->value() : 0;
+            updateEnabledStates();
+            emit changed();
+        });
+        connect(competitiveLevel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int value) {
+            if (competitive->isChecked()) {
+                s->competitiveLevel = value;
+                emit changed();
+            }
+        });
+    }
+
     // --- Tera ---
     {
         auto* row = new QHBoxLayout();
@@ -200,6 +239,7 @@ QCheckBox* TrainerSettingsEditor::addCheck(QVBoxLayout* layout, const QString& t
 void TrainerSettingsEditor::updateEnabledStates() {
     fullyEvolvedLevel->setEnabled(fullyEvolved->isChecked());
     smartTMs->setEnabled(smartMoves->isChecked());
+    competitiveLevel->setEnabled(competitive->isChecked());
 }
 
 void TrainerSettingsEditor::refresh() {
@@ -218,6 +258,10 @@ void TrainerSettingsEditor::refresh() {
     levelEvos->setChecked(s->levelAppropriateEvos);
     smartMoves->setChecked(s->smartMovesets);
     smartTMs->setChecked(s->smartMovesTMs);
+    competitive->setChecked(s->competitiveLevel > 0);
+    if (s->competitiveLevel > 0) {
+        competitiveLevel->setValue(s->competitiveLevel);
+    }
     allowTera->setChecked(s->allowTera);
     randomTera->setChecked(s->randomizeTeras);
     smartAI->setChecked(s->makeAISmart);
@@ -267,6 +311,7 @@ QJsonObject trainerSettingsToJson(const trainerSettings& s) {
     o["levelAppropriateEvos"] = s.levelAppropriateEvos;
     o["smartMovesets"] = s.smartMovesets;
     o["smartMovesTMs"] = s.smartMovesTMs;
+    o["competitiveLevel"] = s.competitiveLevel;
 
     o["allowedPokemons"] = limiterToJson(s.allowedPokemons);
     return o;
@@ -291,6 +336,7 @@ void trainerSettingsFromJson(const QJsonObject& o, trainerSettings& s) {
     s.levelAppropriateEvos = o["levelAppropriateEvos"].toBool(s.levelAppropriateEvos);
     s.smartMovesets = o["smartMovesets"].toBool(s.smartMovesets);
     s.smartMovesTMs = o["smartMovesTMs"].toBool(s.smartMovesTMs);
+    s.competitiveLevel = qBound(0, o["competitiveLevel"].toInt(s.competitiveLevel), 100);
 
     limiterFromJson(o["allowedPokemons"].toObject(), s.allowedPokemons);
     if (o.contains("legendaryChance")) {

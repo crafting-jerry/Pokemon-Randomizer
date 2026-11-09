@@ -27,8 +27,13 @@ struct GameData {
         int form = 0;
         int type1 = 0;
         int type2 = 0;
+        int hp = 0;
         int atk = 0;
+        int def = 0;
         int spa = 0;
+        int spd = 0;
+        int spe = 0;
+        int abilities[3] = {0, 0, 0};     // Faehigkeit 1, 2, versteckt (IDs)
         QList<QPair<int,int>> levelMoves; // (Attacke, Level); Level 0 oder >= 250 = beim Entwickeln
         QList<int> tmMoves;
     };

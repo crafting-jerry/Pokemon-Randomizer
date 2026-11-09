@@ -83,8 +83,13 @@ void TrainerSmartData::build(const GameData& data) {
         PokeInfo info;
         info.type1 = s.type1;
         info.type2 = s.type2;
+        info.hp = s.hp;
         info.atk = s.atk;
+        info.def = s.def;
         info.spa = s.spa;
+        info.spd = s.spd;
+        info.spe = s.spe;
+        for (int a = 0; a < 3; a++) info.abilities[a] = s.abilities[a];
         info.levelMoves = s.levelMoves;
         info.tmMoves = s.tmMoves;
         pokeInfo[key(s.natdex, s.form)] = info;
@@ -116,6 +121,8 @@ void TrainerSmartData::build(const GameData& data) {
         }
 
         bool usable = m.canUse && info.id > 0;
+        info.usable = usable;
+        info.priority = m.priority;
         bool clumsy = m.recharge || m.charge || m.futureAttack || m.priority < 0;
 
         info.damaging = usable && info.category != 0 && info.power > 1 && !clumsy &&
